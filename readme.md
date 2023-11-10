@@ -11,6 +11,8 @@ in x86 add `powerstat` and `dmidecode` to sudoers in order to not ask password
 # ALL ALL=NOPASSWD: /usr/bin/dmidecode
 ```
 
+# Energy Monitoring
+
 get readings
 
 ```python
@@ -55,4 +57,28 @@ wait_for_exit_signal()
 p.stop()
 
 
+```
+
+# Sensors
+
+integrates with [ovos-PHAL-sensors](https://github.com/OpenVoiceOS/ovos-PHAL-sensors)
+
+
+Battery Sensors
+```
+BatterySensor
+BatteryChargeSensor
+BatteryCurrentSensor
+BatteryStoredEnergySensor
+BatteryPowerSensor
+BatteryStatusSensor
+BatteryVoltageSensor
+BatteryChargingSensor
+```
+
+Power Sensors
+```
+PowerGuessPowerSensor
+PowerGuessCurrentSensor
+PowerGuessVoltageSensor
 ```
