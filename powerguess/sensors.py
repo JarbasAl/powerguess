@@ -1,10 +1,9 @@
 import dataclasses
-import time
 
-from ovos_PHAL_sensors.sensors.base import PercentageSensor, NumericSensor, Sensor, BooleanSensor, _norm
+from ovos_PHAL_sensors.sensors.base import PercentageSensor, NumericSensor, Sensor, BooleanSensor
 
-from powerguess.utils import get_battery_info, get_energy_delta_per_second
 from powerguess.guess import PowerStatMonitor
+from powerguess.utils import get_battery_info, get_energy_delta_per_second
 
 
 @dataclasses.dataclass
@@ -81,9 +80,8 @@ class BatterySensor(PercentageSensor):
 
 
 @dataclasses.dataclass
-class BatteryPowerSensor(NumericSensor):
-    """ negative if battery is discharging"""
-    unique_id: str = "power"
+class BatteryPowerConsumptionSensor(NumericSensor):
+    unique_id: str = "power_consumption"
     device_name: str = "battery"
     unit: str = "W"
 
@@ -92,10 +90,31 @@ class BatteryPowerSensor(NumericSensor):
         battery = list(get_battery_info())[0]
         if battery is None:
             return 0
-        c = round(battery["power"], 3)
+        if battery["status"] == "Charging":
+            return round(battery["power"], 3)
+        return 0
+
+    @property
+    def attrs(self):
+        return {"friendly_name": self.__class__.__name__,
+                "device_class": "power",
+                "unit_of_measurement": self.unit}
+
+
+@dataclasses.dataclass
+class BatteryPowerProductionSensor(NumericSensor):
+    unique_id: str = "power_production"
+    device_name: str = "battery"
+    unit: str = "W"
+
+    @property
+    def value(self):
+        battery = list(get_battery_info())[0]
+        if battery is None:
+            return 0
         if battery["status"] == "Discharging":
-            return c * -1
-        return c
+            return round(battery["power"], 3)
+        return 0
 
     @property
     def attrs(self):
@@ -245,21 +264,9 @@ class BatteryChargingSensor(BooleanSensor):
 
 
 if __name__ == "__main__":
-    def c(reading, model):
-        print(reading)
-        PowerGuessPowerSensor().sensor_update()
-        PowerGuessCurrentSensor().sensor_update()
-        PowerGuessVoltageSensor().sensor_update()
-
-
-    p = PowerStatMonitor()
-    p.add_callback(c)
-    p.start()
-    time.sleep(30)
-    p.stop()
-
     print(BatterySensor().value, "%")
-    print(BatteryPowerSensor().value, "W")
+    print(BatteryPowerConsumptionSensor().value, "W")
+    print(BatteryPowerProductionSensor().value, "W")
     print(BatteryCurrentSensor().value, "A")
     print(BatteryVoltageSensor().value, "V")
     print(BatteryChargeSensor().value, "Ah")
