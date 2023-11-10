@@ -1,0 +1,5 @@
+{
+  "idle": {"power": 30, "voltage":  20},
+  "avg": {"power": 75, "voltage":  20},
+  "load": {"power": 120, "voltage":  20}
+}
