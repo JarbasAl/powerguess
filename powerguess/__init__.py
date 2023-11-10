@@ -103,10 +103,12 @@ class PowerStatMonitor(threading.Thread):
     ignore_battery = False
     model = get_model()
     benchmarks = {}
+    callbacks = []
 
-    def __init__(self, smooth=False):
+    def __init__(self, smooth=False, time_between_measures=5):
         super().__init__(daemon=True)
         self.smooth = smooth
+        self.time_between_measures = time_between_measures
         self.readings = []
 
         if self.model:
@@ -142,12 +144,22 @@ class PowerStatMonitor(threading.Thread):
 
         PowerStatMonitor.current_value = cls.guesstimate_cpu()
 
+    @classmethod
+    def add_callback(cls, cb):
+        PowerStatMonitor.callbacks.append(cb)
+
     def run(self) -> None:
         PowerStatMonitor.running = True
         while PowerStatMonitor.running:
             for reading in self.measure_powerstat(self.smooth):
                 PowerStatMonitor.current_value = reading
-            threading.Event().wait(10)
+                for cb in self.callbacks:
+                    try:
+                        cb(reading, self.model)
+                    except Exception as e:
+                        print(f"callback {cb} failed: {e}")
+                        continue
+            threading.Event().wait(self.time_between_measures)
 
     def stop(self):
         PowerStatMonitor.running = False
@@ -255,24 +267,22 @@ class PowerStatMonitor(threading.Thread):
 
 
 if __name__ == "__main__":
-    import time
     # in x86 add to sudoers
     # ALL ALL=NOPASSWD: /usr/bin/powerstat
     # ALL ALL=NOPASSWD: /usr/bin/dmidecode
 
+    def c(reading, model):
+        p, v, i = reading
+        print(f"new {model} reading:", p, "W - ", i, "A - ", v, "V")
+
+
     # do this at PHAL plugin init time
     p = PowerStatMonitor()
+    p.add_callback(c)
     p.start()
 
-    time.sleep(5)
-    get_power_supply_info()
-    time.sleep(1)
-    get_power_supply_info()
-    time.sleep(1)
-    get_power_supply_info()
-    time.sleep(1)
-    get_power_supply_info()
-    time.sleep(1)
-    get_power_supply_info()
+    from ovos_utils import wait_for_exit_signal
+
+    wait_for_exit_signal()
 
     p.stop()
