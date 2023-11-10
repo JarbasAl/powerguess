@@ -11,6 +11,12 @@ import pexpect
 import psutil
 
 
+def transform_range(value: float, r1: tuple, r2: tuple):
+    """ scale N from range (x, y) to (X, Y) """
+    scale = (r2[1] - r2[0]) / (r1[1] - r1[0])
+    return (value - r1[0]) * scale
+
+
 def get_battery_info():
     # https://www.kernel.org/doc/html/latest/power/power_supply_class.html
     for b in os.listdir("/sys/class/power_supply/"):
@@ -101,6 +107,7 @@ class PowerStatMonitor(threading.Thread):
     running = False
     current_value = 0, 0, 0  # (p, v, i)
     ignore_battery = False
+    prefer_battery = False
     model = get_model()
     benchmarks = {}
     callbacks = []
@@ -152,6 +159,8 @@ class PowerStatMonitor(threading.Thread):
         PowerStatMonitor.running = True
         while PowerStatMonitor.running:
             for reading in self.measure_powerstat(self.smooth):
+                if not reading[0]:
+                    continue  # 0 power consumption is impossible
                 PowerStatMonitor.current_value = reading
                 for cb in self.callbacks:
                     try:
@@ -171,9 +180,7 @@ class PowerStatMonitor(threading.Thread):
         return zip(*args)
 
     @classmethod
-    def guesstimate_cpu(cls):
-        p, v, i = 0, 0, 0
-
+    def get_battery(cls):
         if PowerStatMonitor.ignore_battery:
             bat = None
         else:
@@ -181,6 +188,15 @@ class PowerStatMonitor(threading.Thread):
 
         if bat:  # estimate from battery readings
             bat = bat[0]
+        return bat or None
+
+    @classmethod
+    def guesstimate_cpu(cls):
+        p, v, i = 0, 0, 0
+
+        bat = cls.get_battery()
+
+        if bat:  # estimate from battery readings
             if bat["status"] == "Discharging":
                 # assume the energy is being consumed by the laptop
                 p = bat["power"]
@@ -196,37 +212,23 @@ class PowerStatMonitor(threading.Thread):
         imax = cls.benchmarks["load"].get("current") or 0
         iavg = cls.benchmarks["avg"].get("current") or imax * 0.6
         imin = cls.benchmarks["idle"].get("current") or imax * 0.3
-        vmax = cls.benchmarks["load"].get("voltage") or 0
-        vavg = cls.benchmarks["avg"].get("voltage") or vmax
-        vmin = cls.benchmarks["idle"].get("voltage") or vmax
 
-        # assume max consumption if cpu >= 80%
-        if cpu >= 80:
-            p = pmax
-            i = imax
-            v = vmax
-        # assume idle consumption if cpu <= 10%
-        elif cpu <= 10:
-            p = pmin
-            i = imin
-            v = vmin
-        # assume 100% == avg consumption if 10 < cpu < 50
-        elif 10 < cpu < 60:
-            p = cpu * pavg / 100
-            i = cpu * iavg / 100
-            v = vavg
-        # assume 100% == under stress consumption if 50 < cpu < 80
+        if cpu < 60:
+            p = transform_range(cpu, (0, 100), (pmin, pavg))
+            if imin and iavg:
+                i = transform_range(cpu, (0, 100), (imin, iavg))
+            else:
+                v = cls.benchmarks["avg"].get("voltage") or \
+                    cls.benchmarks["load"].get("voltage") or \
+                    cls.benchmarks["idle"].get("voltage") or 0
         else:
-            p = cpu * pmax / 100
-            i = cpu * imax / 100
-            v = vavg
-
-        if pmin:
-            p = max(p, pmin)
-            i = max(i, imin)
-        if pmax:
-            p = min(p, pmax)
-            i = min(i, imax)
+            p = transform_range(cpu, (0, 100), (pmin, pmax))
+            if imin and imax:
+                i = transform_range(cpu, (0, 100), (imin, imax))
+            else:
+                v = cls.benchmarks["load"].get("voltage") or \
+                    cls.benchmarks["avg"].get("voltage") or \
+                    cls.benchmarks["idle"].get("voltage") or 0
 
         if i and not v:
             v = p / i  # V
@@ -238,7 +240,13 @@ class PowerStatMonitor(threading.Thread):
     def measure_powerstat(self, smooth=False):
         # ALL ALL=NOPASSWD: /usr/bin/powerstat
         p, v, i = self.guesstimate_cpu()
-        if find_executable("powerstat"):
+        bat = self.get_battery()
+        if not self.ignore_battery and self.prefer_battery and bat:
+            p = bat["power"]
+            v = bat["voltage"]
+            i = bat["current"]
+            yield p, v, i
+        elif find_executable("powerstat"):
             try:
                 child = pexpect.spawn('sudo powerstat -R 1')
                 child.expect('  Time    User  Nice   Sys  Idle    IO  Run Ctxt/s  IRQ/s Fork Exec Exit  Watts\r\n')
