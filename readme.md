@@ -2,6 +2,9 @@
  
 guess live power usage of linux devices
 
+![Peek 2023-11-11 02-49](https://github.com/OpenJarbas/powerguess/assets/33701864/ea76cf33-8c6a-4de7-bc51-e38a9a6359e6)
+
+
 submit reference benchmark readings.json to [powerguess/models](./powerguess/models)
 
 in x86 add `powerstat` and `dmidecode` to sudoers in order to not ask password
