@@ -132,7 +132,7 @@ def main() -> None:
             if cpu is not None:
                 mqtt_client.publish_cpu(cpu.read())
             if has_rpi:
-                mqtt_client.publish_rpi(rpi.get_throttled())
+                mqtt_client.publish_rpi(rpi.soc_telemetry())
         if dataset_fh and reading.measured:
             from .model import current_features, device_arch
             dataset_fh.write(json.dumps({

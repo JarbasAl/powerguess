@@ -212,15 +212,35 @@ class MQTTClient:
 
         if self._has_rpi:
             rpi = f"{self._prefix}/rpi"
-            self._binary_sensor("Undervoltage", "undervoltage", rpi,
-                                "{{ 'ON' if value_json.undervoltage else 'OFF' }}",
-                                device, device_class="problem")
-            self._binary_sensor("Throttled", "throttled", rpi,
-                                "{{ 'ON' if value_json.throttled else 'OFF' }}",
-                                device, device_class="problem")
-            self._binary_sensor("Undervoltage Occurred", "undervoltage_occurred", rpi,
-                                "{{ 'ON' if value_json.undervoltage_occurred else 'OFF' }}",
-                                device, device_class="problem")
+
+            def _b(name, key, dclass="problem"):
+                self._binary_sensor(name, key, rpi,
+                                    "{{ 'ON' if value_json.%s else 'OFF' }}" % key,
+                                    device, device_class=dclass)
+
+            # Throttling
+            _b("Throttled", "throttled")
+            _b("Frequency Capped", "freq_capped")
+            _b("Throttling Occurred", "throttled_occurred")
+            # Overheating
+            _b("Overheating", "soft_temp_limit", dclass="heat")
+            _b("Overheating Occurred", "soft_temp_limit_occurred", dclass="heat")
+            # Undervoltage (power supply)
+            _b("Undervoltage", "undervoltage")
+            _b("Undervoltage Occurred", "undervoltage_occurred")
+            # Overclocking
+            _b("Overclocked", "overclocked", dclass=None)
+            self._sensor("ARM Clock", "arm_clock", rpi, "{{ value_json.arm_clock_mhz }}",
+                         device, unit="MHz", device_class="frequency",
+                         state_class="measurement")
+            self._sensor("Configured ARM Freq", "arm_freq_config", rpi,
+                         "{{ value_json.arm_freq_config_mhz }}", device, unit="MHz",
+                         device_class="frequency")
+            self._sensor("Over-voltage", "over_voltage", rpi,
+                         "{{ value_json.over_voltage }}", device, icon="mdi:flash-alert")
+            self._sensor("Core Voltage", "core_voltage", rpi,
+                         "{{ value_json.core_volts }}", device, unit="V",
+                         device_class="voltage", state_class="measurement")
 
         if self._has_cpu:
             cpu = f"{self._prefix}/cpu"

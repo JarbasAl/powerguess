@@ -42,3 +42,15 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     # Optional: use host network if the MQTT broker is on localhost.
     # network_mode: host
+    # Raspberry Pi: expose vcgencmd for throttling/overheating/overclocking and
+    # (Pi 5) PMIC power. vcgencmd is statically linked, so only the binary +
+    # VideoCore devices are needed. Also pass the board model (device-tree isn't
+    # visible in-container):
+    #   environment:
+    #     - POWERGUESS_MODEL=Raspberry Pi 4 Model B
+    #   volumes:
+    #     - /usr/bin/vcgencmd:/usr/bin/vcgencmd:ro
+    #     - /sys/class/thermal:/sys/class/thermal:ro
+    #   devices:
+    #     - /dev/vcio
+    #     - /dev/vchiq

@@ -33,13 +33,39 @@ The profiles are deliberately coarse (a Pi 4 with a couple of USB SSDs draws ver
 differently from a bare one), so a meter or a calibration is the way to trust the
 number — and that data can feed the [dataset/model](dataset.md).
 
-## Undervoltage & throttling
+## Throttling, overheating, overclocking
 
-On a Pi, `vcgencmd get_throttled` is exposed as Home Assistant **binary sensors**
-(`device_class: problem`): `undervoltage`, `throttled`, and
-`undervoltage_occurred`. Undervoltage on a Pi causes SD-card corruption and silent
-slowdowns, so this is worth an alert regardless of the power number. Auto-enabled
-when `vcgencmd` is present (`USE_RPI`).
+When `vcgencmd` is available, PowerGuess publishes SoC health sensors (auto-enabled
+via `USE_RPI`):
+
+- **Throttling** — `throttled`, `freq_capped` binary sensors (+ `throttled_occurred`
+  history), and the live `arm_clock` (MHz) which drops when the firmware throttles.
+- **Overheating** — `soft_temp_limit` and `soft_temp_limit_occurred` binary sensors
+  (the firmware's thermal-throttle flag), alongside `cpu_temperature`.
+- **Overclocking** — `overclocked` (set when `over_voltage > 0`), plus the
+  `over_voltage` and configured `arm_freq` sensors and the live `arm_clock`.
+- **Undervoltage** — `undervoltage` / `undervoltage_occurred` (SD-card-corrupting,
+  worth an alert on its own).
+
+### Running in a container
+
+`vcgencmd` is statically linked (only needs libc), so wire it in by mounting the
+host binary and the VideoCore device — no extra libraries:
+
+```bash
+docker run -d --name powerguess --network host --restart unless-stopped \
+  -e MQTT_HOST=127.0.0.1 -e MQTT_USER=<u> -e MQTT_PASSWORD=<p> \
+  -e POWERGUESS_MODEL="$(tr -d '\0' </proc/device-tree/model)" \
+  -e CALIBRATION_FILE=/data/calibration.json -e ENERGY_FILE=/data/energy.json \
+  -v powerguess-data:/data \
+  -v /sys/class/thermal:/sys/class/thermal:ro \
+  -v /usr/bin/vcgencmd:/usr/bin/vcgencmd:ro --device /dev/vcio --device /dev/vchiq \
+  powerguess:latest
+```
+
+`POWERGUESS_MODEL` is passed in because `/proc/device-tree` isn't reliably visible
+inside a container. On a Pi 5, add nothing else — PMIC board power is detected
+automatically.
 
 ## Summary
 
