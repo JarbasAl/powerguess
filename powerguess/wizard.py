@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
+import os
 import statistics
 import time
 from collections import deque
@@ -21,6 +23,7 @@ from shutil import which
 from typing import List, Optional
 
 from .calibration import Calibration
+from .utils import get_battery_info
 
 LOG = logging.getLogger("powerguess.wizard")
 
@@ -198,6 +201,86 @@ class MQTTPowerMeter:
         return out
 
 
+# --- battery meter (no smart plug) ---------------------------------------------
+
+class BatteryMeter:
+    """Use the laptop battery's discharge rails as a whole-device power meter.
+
+    Only valid while the device runs on battery (``Discharging``); on AC the
+    battery is bypassed and reports nothing useful.
+    """
+
+    def _battery(self) -> Optional[dict]:
+        bats = list(get_battery_info())
+        return bats[0] if bats else None
+
+    def discharging(self) -> bool:
+        b = self._battery()
+        return bool(b and b["status"] == "Discharging")
+
+    def voltage(self) -> float:
+        b = self._battery()
+        return b["voltage"] if b and b["voltage"] else 11.1
+
+    def read(self) -> Optional[float]:
+        b = self._battery()
+        if b and b["status"] == "Discharging" and b["power"]:
+            return b["power"]
+        return None
+
+
+def _busy_until(deadline: float) -> None:  # pragma: no cover - runs in a child proc
+    while time.time() < deadline:
+        pass
+
+
+def generate_load(seconds: float, workers: Optional[int] = None):
+    """Spin every core with a busy loop for ``seconds``; returns the processes."""
+    workers = workers or os.cpu_count() or 1
+    deadline = time.time() + seconds
+    procs = [multiprocessing.Process(target=_busy_until, args=(deadline,))
+             for _ in range(workers)]
+    for p in procs:
+        p.start()
+    return procs
+
+
+def _sample(meter, seconds: float, on_tick=None) -> List[float]:
+    out: List[float] = []
+    for remaining in range(int(seconds), 0, -1):
+        value = meter.read()
+        if value is not None:
+            out.append(value)
+        if on_tick:
+            on_tick(remaining, value)
+        time.sleep(1.0)
+    return out
+
+
+def autocalibrate_battery(idle_seconds: int = 20, load_seconds: int = 25,
+                          ramp: float = 2.0, on_tick=None):
+    """Calibrate automatically using the battery as the meter — no smart plug.
+
+    Measures idle, then spins every core itself and measures the peak. Returns
+    ``(calibration, warnings, summary)``. Requires the device to be on battery.
+    """
+    meter = BatteryMeter()
+    if not meter.discharging():
+        return None, ["the laptop is on AC — unplug it so the battery becomes the "
+                      "meter, then run this again"], {}
+
+    idle = _sample(meter, idle_seconds, on_tick)
+    procs = generate_load(load_seconds + ramp + 1)
+    time.sleep(ramp)  # let the load ramp up before sampling
+    load = _sample(meter, load_seconds, on_tick)
+    for p in procs:
+        p.terminate()
+        p.join()
+
+    cal, warnings = build_calibration(idle, load, voltage=meter.voltage())
+    return cal, warnings, {"idle": summarise(idle), "load": summarise(load)}
+
+
 # --- interactive flow ----------------------------------------------------------
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -298,7 +381,54 @@ def run() -> int:
     return 0
 
 
+def run_battery(idle_seconds: int = 20, load_seconds: int = 25,
+                out: Optional[str] = None) -> int:
+    """Automatic, smart-plug-free calibration using the battery as the meter."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    from .config import Config
+
+    print("PowerGuess battery auto-calibration (no smart plug)")
+    meter = BatteryMeter()
+    if not meter.discharging():
+        print("\nThe laptop is on AC — the battery can only meter while discharging.")
+        print("Unplug the charger, then run:  powerguess-calibrate --battery\n")
+        return 1
+
+    print(f"On battery ({meter.voltage():.1f} V). Measuring — leave it idle for "
+          f"{idle_seconds}s, then I'll load every core for {load_seconds}s.\n")
+
+    def tick(remaining, value):
+        print(f"  {remaining:2d}s … {value if value else '—'} W   ", end="\r", flush=True)
+
+    print("STEP 1/2 — idle (the floor):")
+    cal, warnings, summary = autocalibrate_battery(idle_seconds, load_seconds, on_tick=tick)
+    print(f"\n  idle ≈ {summary.get('idle', {}).get('median', 0)} W")
+    print(f"  peak ≈ {summary.get('load', {}).get('p90', 0)} W\n")
+
+    for w in warnings:
+        print(f"  ! {w}")
+    if cal is None:
+        return 1
+
+    out = out or Config.CALIBRATION_FILE or "calibration.json"
+    cal.save(out)
+    print(f"Saved {out}:  idle {cal.idle_power} W   peak {cal.load_power} W "
+          f"({cal.voltage:.1f} V)")
+    print(f"\nUse it:  CALIBRATION_FILE={out} python -m powerguess")
+    return 0
+
+
 def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser(description="PowerGuess calibration.")
+    ap.add_argument("--battery", action="store_true",
+                    help="auto-calibrate from the battery meter (laptops; no smart plug)")
+    ap.add_argument("--idle-seconds", type=int, default=20)
+    ap.add_argument("--load-seconds", type=int, default=25)
+    ap.add_argument("--out", default=None, help="calibration output path")
+    args = ap.parse_args()
+    if args.battery:
+        raise SystemExit(run_battery(args.idle_seconds, args.load_seconds, args.out))
     raise SystemExit(run())
 
 
