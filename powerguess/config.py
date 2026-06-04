@@ -28,6 +28,9 @@ class Config:
     # CPU component telemetry (util/freq/temp, and package power via RAPL)
     USE_CPU: bool = os.getenv("USE_CPU", "true").lower() == "true"
 
+    # Raspberry Pi via vcgencmd: PMIC board power (Pi 5) + throttling/undervoltage
+    USE_RPI: bool = os.getenv("USE_RPI", "true").lower() == "true"
+
     # GPU telemetry (NVIDIA via nvidia-smi) published as its own entities
     USE_GPU: bool = os.getenv("USE_GPU", "true").lower() == "true"
     GPU_INDEX: int = int(os.getenv("GPU_INDEX", "0"))

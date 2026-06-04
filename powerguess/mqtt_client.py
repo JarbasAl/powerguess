@@ -24,13 +24,15 @@ class MQTTClient:
 
     def __init__(self, has_battery: bool = False, has_gpu: bool = False,
                  has_gpu_power: bool = False, has_cpu: bool = False,
-                 has_cpu_power: bool = False, client=None) -> None:
+                 has_cpu_power: bool = False, has_rpi: bool = False,
+                 client=None) -> None:
         self._prefix = Config.MQTT_TOPIC_PREFIX
         self._availability = f"{self._prefix}/availability"
         self._has_gpu = has_gpu
         self._has_gpu_power = has_gpu_power
         self._has_cpu = has_cpu
         self._has_cpu_power = has_cpu_power
+        self._has_rpi = has_rpi
         self.client = client or new_client(Config.MQTT_CLIENT_ID)
         if client is None:
             if Config.MQTT_USER and Config.MQTT_PASSWORD:
@@ -152,6 +154,11 @@ class MQTTClient:
             return
         self._publish(f"{self._prefix}/cpu", json.dumps(cpu_reading.as_dict()))
 
+    def publish_rpi(self, throttled: dict) -> None:
+        if not throttled:
+            return
+        self._publish(f"{self._prefix}/rpi", json.dumps(throttled))
+
     def _publish(self, topic: str, payload: str) -> None:
         if not self._connected:
             LOG.debug("MQTT not connected, dropping message to %s", topic)
@@ -202,6 +209,18 @@ class MQTTClient:
                          state_class="total_increasing", icon="mdi:cash")
         self._sensor("Model", "model", f"{self._prefix}/model",
                      "{{ value_json.model }}", device, icon="mdi:cpu-64-bit")
+
+        if self._has_rpi:
+            rpi = f"{self._prefix}/rpi"
+            self._binary_sensor("Undervoltage", "undervoltage", rpi,
+                                "{{ 'ON' if value_json.undervoltage else 'OFF' }}",
+                                device, device_class="problem")
+            self._binary_sensor("Throttled", "throttled", rpi,
+                                "{{ 'ON' if value_json.throttled else 'OFF' }}",
+                                device, device_class="problem")
+            self._binary_sensor("Undervoltage Occurred", "undervoltage_occurred", rpi,
+                                "{{ 'ON' if value_json.undervoltage_occurred else 'OFF' }}",
+                                device, device_class="problem")
 
         if self._has_cpu:
             cpu = f"{self._prefix}/cpu"

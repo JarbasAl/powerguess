@@ -40,6 +40,11 @@ It also breaks out per-component telemetry. **CPU** (always):
 | `sensor.powerguess_gpu_memory` | % | VRAM used |
 | `sensor.powerguess_gpu_power` | W | only when `nvidia-smi` reports a credible value (validated against the power limit; some laptop GPUs report garbage and are skipped) |
 
+On a Raspberry Pi it adds **binary sensors** (`device_class: problem`):
+`binary_sensor.powerguess_undervoltage`, `binary_sensor.powerguess_throttled`,
+and `binary_sensor.powerguess_undervoltage_occurred` — see
+[raspberry-pi.md](raspberry-pi.md).
+
 The **source** and **error margin** sensors tell you whether the power figure is
 measured or estimated; **floor**/**ceiling** show the [envelope](theory.md) the
 estimate sits in. All entities are tied to an MQTT **availability** topic with a

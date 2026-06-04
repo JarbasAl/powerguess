@@ -69,6 +69,7 @@ The CPU and GPU are tracked as their own entities (not as the total).
 | `USE_CPU` | `true` | publish CPU utilization/frequency/temperature; plus CPU **package** power via RAPL when `/sys/class/powercap/.../energy_uj` is readable (often root-only) |
 | `USE_GPU` | `true` | publish GPU utilization/temperature/memory (and power, if credible) via `nvidia-smi` |
 | `GPU_INDEX` | `0` | which GPU to read |
+| `USE_RPI` | `true` | Raspberry Pi via `vcgencmd`: PMIC board power (Pi 5) as a measured total source, plus undervoltage/throttling binary sensors — see [raspberry-pi.md](raspberry-pi.md) |
 
 Note: RAPL measures the CPU package only, so it is a component — not the
 whole-device total. The total comes from INA219 / battery / the estimate.

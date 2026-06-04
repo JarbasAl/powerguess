@@ -25,6 +25,7 @@ from typing import Callable, List, Optional
 import pexpect
 import psutil
 
+from powerguess import rpi
 from powerguess.calibration import AutoCalibrator, Calibration
 from powerguess.reading import Reading
 from powerguess.utils import get_battery_info, get_model, transform_range
@@ -59,8 +60,9 @@ class PowerStatMonitor(threading.Thread):
     def __init__(self, smooth: bool = False, time_between_measures: float = 5,
                  calibration: Optional[Calibration] = None,
                  auto_calibrator: Optional[AutoCalibrator] = None,
-                 ina219=None, predictor=None, prefer_battery: bool = False,
-                 use_powerstat: bool = True, energy_file: Optional[str] = None):
+                 ina219=None, pmic: bool = False, predictor=None,
+                 prefer_battery: bool = False, use_powerstat: bool = True,
+                 energy_file: Optional[str] = None):
         super().__init__(daemon=True)
         self.smooth = smooth
         self.time_between_measures = time_between_measures
@@ -75,6 +77,7 @@ class PowerStatMonitor(threading.Thread):
         self._last_ts: Optional[float] = None
         self.has_battery = bool(self.get_battery())
         self.ina = ina219
+        self.pmic = pmic
         self.predictor = predictor
         self.calibration = calibration
         self.auto = auto_calibrator
@@ -159,13 +162,19 @@ class PowerStatMonitor(threading.Thread):
             except Exception as exc:  # noqa: BLE001 - hardware optional
                 print(f"INA219 read failed: {exc}")
 
-        # 2. Battery discharge — measured device input (whole device).
+        # 2. Raspberry Pi PMIC — measured whole-board power (Pi 5), no hardware.
+        if self.pmic:
+            p = rpi.pmic_power()
+            if p:
+                return Reading(p, 0.0, 0.0, "pmic")
+
+        # 3. Battery discharge — measured device input (whole device).
         if self.has_battery:
             p, v, i = self.get_battery_output()
             if p:
                 return Reading(p, v, i, "battery")
 
-        # 3. powerstat — measured (x86, privileged) system-power fallback.
+        # 4. powerstat — measured (x86, privileged) system-power fallback.
         # (RAPL is CPU-package only, so it's a component — see powerguess.cpu —
         #  not a whole-device total source.)
         if self.use_powerstat and not self.prefer_battery:

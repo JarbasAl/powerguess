@@ -13,10 +13,12 @@ Home Assistant dependency.
 | Source | When | Accuracy |
 | --- | --- | --- |
 | INA219 (I²C) | a power-monitor HAT is wired (`pip install powerguess[ina219]`) | measured |
-| RAPL (`/sys/class/powercap`) | x86 with a readable energy counter (auto-detected) | measured |
-| `powerstat` | x86 fallback when RAPL isn't readable | measured |
+| Pi PMIC (`vcgencmd`) | Raspberry Pi 5 — whole-board power, no hardware (auto-detected) | measured |
 | Battery rails (`/sys`) | devices on battery | measured |
-| CPU-load estimate | everything else (headless Pi, SBC, mini PC) | estimated, with an error band |
+| `powerstat` | x86 fallback (system power) | measured |
+| CPU-load estimate | everything else (bare Pi/SBC, mini PC) | estimated, with an error band |
+
+(CPU package power via RAPL is a *component* sensor, not the device total — see below. SBC details: **[docs/raspberry-pi.md](docs/raspberry-pi.md)**.)
 
 It also breaks out **per-component telemetry** as separate Home Assistant
 entities: the **CPU** (utilization, frequency, temperature, and package power via

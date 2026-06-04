@@ -6,7 +6,7 @@ import dataclasses
 
 # Whole-device sources, ordered most → least trustworthy. (RAPL is CPU-package
 # only, so it is a component in powerguess.cpu, not a total-device source.)
-MEASURED_SOURCES = ("ina219", "powerstat", "battery")
+MEASURED_SOURCES = ("ina219", "pmic", "powerstat", "battery")
 ESTIMATED_SOURCE = "estimate"
 
 

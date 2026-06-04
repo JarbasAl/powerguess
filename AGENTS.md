@@ -17,6 +17,7 @@ paho-mqtt; the OVOS PHAL integration is an optional extra.
 | `powerguess/rapl.py` | x86 RAPL powercap reader (CPU **package** energy_uj deltas) |
 | `powerguess/cpu.py` | CPU component: util/freq/temp + package power via RAPL — own HA entities |
 | `powerguess/gpu.py` | GPU component: NVIDIA telemetry via nvidia-smi (validated power, util, temp, mem) — own HA entities |
+| `powerguess/rpi.py` | Raspberry Pi via vcgencmd: PMIC board power (Pi 5, a measured total source) + undervoltage/throttling |
 | `powerguess/model.py` | `FEATURES`, `current_features`, `LinearPredictor` (pluggable estimate) |
 | `powerguess/_mqtt.py` | paho 1.x/2.x client factory |
 | `powerguess/utils.py` | `/sys` battery reads, model detection, `transform_range` |

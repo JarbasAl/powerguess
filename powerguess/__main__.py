@@ -85,12 +85,16 @@ def main() -> None:
         Calibration.from_env() or Calibration.load(Config.CALIBRATION_FILE))
     auto = AutoCalibrator(Config.CALIBRATION_FILE) if Config.AUTO_CALIBRATE else None
 
+    from . import rpi
+    has_rpi = Config.USE_RPI and rpi.available()
+
     monitor = PowerStatMonitor(
         smooth=Config.SMOOTH,
         time_between_measures=Config.MEASURE_INTERVAL,
         calibration=calibration,
         auto_calibrator=auto,
         ina219=_build_ina219(),
+        pmic=has_rpi,
         predictor=_build_predictor(),
         prefer_battery=Config.PREFER_BATTERY,
         use_powerstat=Config.USE_POWERSTAT,
@@ -101,7 +105,8 @@ def main() -> None:
     gpu, gpu_power_ok = _build_gpu()
     mqtt_client = MQTTClient(has_battery=monitor.has_battery,
                              has_gpu=gpu is not None, has_gpu_power=gpu_power_ok,
-                             has_cpu=cpu is not None, has_cpu_power=cpu_power_ok)
+                             has_cpu=cpu is not None, has_cpu_power=cpu_power_ok,
+                             has_rpi=has_rpi)
     mqtt_client.connect()
     mqtt_client.publish_model(monitor.model)
 
@@ -119,6 +124,8 @@ def main() -> None:
                 mqtt_client.publish_gpu(gpu_reading)
             if cpu is not None:
                 mqtt_client.publish_cpu(cpu.read())
+            if has_rpi:
+                mqtt_client.publish_rpi(rpi.get_throttled())
         if dataset_fh and reading.measured:
             from .model import current_features, device_arch
             dataset_fh.write(json.dumps({
