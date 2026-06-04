@@ -25,7 +25,7 @@ from typing import Callable, List, Optional
 import pexpect
 import psutil
 
-from powerguess import rpi
+from powerguess import pmic as _pmic
 from powerguess.calibration import AutoCalibrator, Calibration
 from powerguess.reading import Reading
 from powerguess.utils import get_battery_info, get_model, transform_range
@@ -164,7 +164,7 @@ class PowerStatMonitor(threading.Thread):
 
         # 2. Raspberry Pi PMIC — measured whole-board power (Pi 5), no hardware.
         if self.pmic:
-            p = rpi.pmic_power()
+            p = _pmic.pmic_power()
             if p:
                 return Reading(p, 0.0, 0.0, "pmic")
 

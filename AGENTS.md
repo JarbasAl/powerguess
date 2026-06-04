@@ -1,8 +1,9 @@
 # PowerGuess — agent onboarding
 
-Estimate the live power draw of a Linux device and publish it to MQTT / Home
-Assistant. The core is dependency-light (psutil, pexpect); the MQTT bridge adds
-paho-mqtt; the OVOS PHAL integration is an optional extra.
+A **pure power library**: estimate or measure the power draw of a Linux device.
+No I/O bridge — it computes watts with provenance and nothing else. The MQTT /
+Home Assistant bridge and system telemetry (CPU/GPU/Pi temperature, throttling, …)
+live in the companion **linux2mqtt** project, which depends on this.
 
 **Org:** JarbasAl / **Branch:** dev (work) / master (stable)
 
@@ -11,47 +12,39 @@ paho-mqtt; the OVOS PHAL integration is an optional extra.
 | Path | Purpose |
 |------|---------|
 | `powerguess/reading.py` | `Reading` frozen dataclass — value + provenance (`source`, `error_margin`) |
-| `powerguess/guess.py` | `PowerStatMonitor` — total-device source priority (ina219>battery>powerstat>estimate), energy, bounds, callbacks |
+| `powerguess/guess.py` | `PowerStatMonitor` — whole-device source priority (ina219>pmic>battery>powerstat>estimate), energy, bounds, callbacks |
 | `powerguess/calibration.py` | `Calibration` + `AutoCalibrator` (manual/file/env/PSU + percentile-learned idle/peak) |
-| `powerguess/ina219.py` | optional INA219 I²C reader (`ina219` extra) |
-| `powerguess/rapl.py` | x86 RAPL powercap reader (CPU **package** energy_uj deltas) |
-| `powerguess/cpu.py` | CPU component: util/freq/temp + package power via RAPL — own HA entities |
-| `powerguess/gpu.py` | GPU component: NVIDIA telemetry via nvidia-smi (validated power, util, temp, mem) — own HA entities |
-| `powerguess/rpi.py` | Raspberry Pi via vcgencmd: PMIC board power (Pi 5, a measured total source) + undervoltage/throttling |
+| `powerguess/ina219.py` | INA219 I²C power meter (`ina219` extra) — measured total |
+| `powerguess/pmic.py` | Raspberry Pi 5 PMIC board power via vcgencmd — measured total |
 | `powerguess/model.py` | `FEATURES`, `current_features`, `LinearPredictor` (pluggable estimate) |
-| `powerguess/_mqtt.py` | paho 1.x/2.x client factory |
-| `powerguess/utils.py` | `/sys` battery reads, model detection, `transform_range` |
+| `powerguess/utils.py` | `/sys` battery reads, model detection, CPU temp, `transform_range` |
 | `powerguess/models/*.json` | per-device idle/avg/load benchmark profiles |
-| `powerguess/config.py` | env-var config |
-| `powerguess/mqtt_client.py` | paho client + HA auto-discovery (power/energy/source/envelope/cost) + LWT availability |
-| `powerguess/wizard.py` | `powerguess-calibrate` smart-plug calibration wizard |
-| `powerguess/__main__.py` | CLI entry point (`python -m powerguess` / `powerguess`) |
 | `dataset.py` / `train.py` | collect `features → measured watts` JSONL, then least-squares fit a model JSON |
-| `docs/` | theory, Home Assistant, configuration, calibration, dataset docs |
-| `test/` | offline pytest suite (battery `/sys`, INA219 SMBus, RAPL sysfs, MQTT clients mocked) |
+| `docs/` | theory, calibration, dataset |
+| `test/` | offline pytest suite (battery `/sys`, INA219 SMBus mocked) |
+
+## Boundary (powerguess vs linux2mqtt)
+
+powerguess = **watts only** (whole-device power: estimate + INA219/PMIC/battery/
+powerstat + calibration + dataset/model). Anything non-watt — CPU/GPU/Pi
+telemetry (util, freq, temperature, throttling, overclock), MQTT/HA discovery,
+energy/cost accounting, the calibration wizard — belongs in **linux2mqtt**, which
+imports this library for power. RAPL CPU-package power and GPU power ride with
+their telemetry in linux2mqtt; PMIC is whole-board, so it stays here.
 
 ## Conventions
 
 - **Provenance is load-bearing:** every `Reading` records its `source`; estimates
   carry an `error_margin`. Never emit a guess that looks like a measurement, and
-  never feed an estimate into the `AutoCalibrator` or `dataset.py` (ground truth
-  only).
-- No OVOS dependency anywhere — powerguess is a standalone power monitor.
-- No `distutils` (removed in 3.12) — use `shutil.which`.
+  never feed an estimate into the `AutoCalibrator` or `dataset.py` (ground truth only).
+- No OVOS dependency; no `distutils` (use `shutil.which`).
 - Per-instance state only on `PowerStatMonitor` (no class-level mutable state).
-- MQTT discovery mirrors the sibling bridges (`vad2mqtt`, `shazam2mqtt`):
-  retained `homeassistant/<component>/<device_id>/<key>/config`.
-- Tests are offline; mock `/sys/class/power_supply` reads (see `test_battery.py`).
-  `__main__.py` is omitted from coverage.
-- Versions bump from conventional-commit prefixes — never edit
-  `powerguess/version.py`.
-- CI is the shared `OpenVoiceOS/gh-automations` reusable workflows at `@dev`, plus
-  a Docker build to GHCR.
+- Tests are offline; mock `/sys` reads.
+- Versions bump from conventional-commit prefixes — never edit `powerguess/version.py`.
 
 ## Run
 
 ```bash
 pip install -e .[test]
 pytest -q
-MQTT_HOST=192.168.1.10 python -m powerguess
 ```

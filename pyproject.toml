@@ -5,36 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "powerguess"
 dynamic = ["version"]
-description = "Estimate the live power draw of a Linux device and publish it to MQTT / Home Assistant"
+description = "Estimate or measure the power draw of a Linux device — a pure power library"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
 authors = [{name = "JarbasAi", email = "jarbasai@mailfence.com"}]
-keywords = ["power", "energy", "mqtt", "home-assistant", "powerstat", "raspberry-pi",
-            "monitoring", "iot", "smart-home"]
+keywords = ["power", "energy", "estimation", "powerstat", "rapl", "raspberry-pi",
+            "ina219", "monitoring"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Topic :: Home Automation",
     "Topic :: System :: Monitoring",
+    "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
     "psutil",
     "pexpect",
-    "paho-mqtt>=1.6",
 ]
 
 [project.optional-dependencies]
 # Optional INA219 I2C power-monitor support (Raspberry Pi / SBC power HATs).
 ina219 = ["smbus2"]
 test = ["pytest>=7", "pytest-cov"]
-
-[project.scripts]
-powerguess = "powerguess.__main__:main"
-powerguess-calibrate = "powerguess.wizard:main"
 
 [project.urls]
 Homepage = "https://github.com/JarbasAl/powerguess"
@@ -53,7 +48,3 @@ exclude = ["test*"]
 testpaths = ["test"]
 addopts = "-q"
 
-[tool.coverage.run]
-# `__main__` is the long-running CLI loop, exercised manually rather than in
-# the offline suite.
-omit = ["powerguess/__main__.py"]

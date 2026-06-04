@@ -1,108 +1,75 @@
 # Calibration
 
-The generic per-model profiles are coarse — a NUC and a gaming PC both fall under
-`pc_generic` yet draw wildly different power. Calibration pins the estimate to
+The bundled per-model profiles are coarse — a NUC and a gaming PC both fall under
+`pc_generic` yet draw very different power. A `Calibration` pins the estimate to
 *your* device with two numbers: idle (the floor) and peak (the ceiling) watts.
-Anything you provide beats the generic curve. See [theory](theory.md) for why
+Anything you provide beats the generic curve — see [theory](theory.md) for why
 those two bounds are all the estimate needs.
 
-## The fastest path: the wizard
+## Provenance
 
-`powerguess-calibrate` measures both bounds for you using an MQTT smart plug as
-the meter — it reads the plug while prompting you to idle the device and then load
-it, then writes `calibration.json`:
-
-```bash
-powerguess-calibrate
-```
-
-It asks for the plug's MQTT topic, the supply voltage, and (optionally) the PSU
-rating for a sanity check. If you can't run a load test, it falls back to bounding
-by the PSU rating.
-
-### Laptops: no smart plug needed
-
-On a laptop the battery's discharge rails are a whole-device meter. Unplug the
-charger and run:
-
-```bash
-powerguess-calibrate --battery
-```
-
-It's fully automatic: it measures idle, then loads every CPU core **and the GPU**
-(via torch/CUDA if present) itself, reads the peak off the battery, and writes the
-calibration — no smart plug, no manual stress command. Add `--no-gpu` to skip the
-GPU, or `--load-seconds 30` for a more sustained peak. Measuring total device draw
-this way is more reliable than per-component sensors (some report nonsense).
-
-## Provenance first
-
-Every reading carries its `source` and, for estimates, an `error_margin`:
+Every `Reading` carries its `source` and, for estimates, an `error_margin`:
 
 | source | meaning | error_margin |
 | --- | --- | --- |
-| `ina219` | measured by an I²C power monitor | 0 |
-| `powerstat` | measured via x86 RAPL | 0 |
-| `battery` | measured from battery discharge | 0 |
-| `estimate` | modelled from CPU load | ± watts |
+| `ina219` / `pmic` / `battery` / `powerstat` | measured | 0 |
+| `estimate` | modelled from CPU load | ± watts (from the envelope width) |
 
-In Home Assistant these surface as the **Source** and **Error Margin** sensors,
-so a guess is never mistaken for a measurement. Prefer a measured source whenever
-one is available.
+Prefer a measured source whenever one is available.
 
-## Measured: INA219 (recommended for Pi/SBC)
+## Manual
 
-A cheap INA219 I²C power monitor on the device's supply gives a true reading on
-exactly the headless boards where estimation is weakest:
+```python
+from powerguess import PowerStatMonitor, Calibration
 
-```bash
-pip install powerguess[ina219]
-USE_INA219=true INA219_BUS=1 INA219_ADDRESS=0x40 python -m powerguess
+cal = Calibration(idle_power=2.7, load_power=6.4, voltage=5.0)
+monitor = PowerStatMonitor(calibration=cal)
 ```
 
-## Manual calibration
-
-Measure your device's idle and peak draw once (e.g. with a smart plug) and pass
-them in:
-
-```bash
-CALIBRATION_IDLE_W=2.7 CALIBRATION_LOAD_W=6.4 python -m powerguess
-```
-
-or persist a `calibration.json` and point `CALIBRATION_FILE` at it:
-
-```json
-{"idle_power": 2.7, "load_power": 6.4, "voltage": 5.0, "source": "manual"}
-```
+Persist / load it as JSON with `cal.save(path)` / `Calibration.load(path)`, or
+build from environment variables with `Calibration.from_env()`
+(`CALIBRATION_IDLE_W` / `CALIBRATION_LOAD_W` / `CALIBRATION_VOLTAGE`).
 
 ### Idle + PSU rating (no load test)
 
-If you know the idle draw and the PSU rating but can't run a load test, that's
-enough for a valid (if loose) envelope — idle is the floor, the PSU rating the
-ceiling (see [theory](theory.md)):
+If you know idle draw and the PSU rating but can't run a load test, that's still a
+valid (loose) envelope — idle floor, PSU ceiling:
 
-```bash
-CALIBRATION_IDLE_W=2.7 CALIBRATION_PSU_W=15 python -m powerguess
+```python
+cal = Calibration.from_psu(idle_power=2.7, psu_watts=15)
 ```
 
-The estimate is conservative and its error band wide until you measure a real
-peak.
+The estimate is conservative and its error band wide until a real peak is measured.
 
 ## Auto-calibration
 
-With `AUTO_CALIBRATE=true` (the default) and `CALIBRATION_FILE` set, PowerGuess
-watches the lowest and highest **measured** power it sees and writes an `auto`
-calibration back to that file. A device that has a meter for part of its life —
-or runs on battery sometimes — teaches itself an accurate idle/load curve that
-the estimate then uses when the meter isn't available.
+`AutoCalibrator` watches the lowest/highest **measured** power it's fed (via
+robust percentiles) and yields an `auto` calibration — so a device that has a
+meter for part of its life teaches itself an accurate curve:
 
-```bash
-CALIBRATION_FILE=/data/calibration.json python -m powerguess
+```python
+from powerguess import AutoCalibrator
+auto = AutoCalibrator(path="calibration.json")     # persists when it learns
+monitor = PowerStatMonitor(auto_calibrator=auto)   # refines as measured readings arrive
 ```
 
 A manual calibration always wins over the learned one.
 
-## Best estimate: a trained model
+## Measured sources
 
-Beyond the two-point curve, point `MODEL_FILE` at a trained linear model (see
-[dataset.md](dataset.md)) to predict from CPU load, frequency, and core count.
+A real meter removes the guess entirely:
+
+- **INA219** (`pip install powerguess[ina219]`) — I²C power monitor, ideal for
+  headless Pi/SBC.
+- **Pi PMIC** (`powerguess.pmic`) — Raspberry Pi 5 whole-board power, no hardware.
+- **battery** — laptop discharge rails.
+
+## Trained model
+
+Beyond the two-point curve, a `LinearPredictor` (see [dataset.md](dataset.md))
+predicts from CPU load, frequency, temperature, and core count.
+
+---
+
+*Guided calibration with a smart plug or laptop battery is provided by the
+**linux2mqtt** bridge (`linux2mqtt calibrate`), which builds on this library.*

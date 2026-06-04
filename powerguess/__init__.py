@@ -1,14 +1,16 @@
-"""PowerGuess — estimate (or measure) the live power draw of a Linux device.
+"""PowerGuess — estimate (or measure) the power draw of a Linux device.
 
-:class:`~powerguess.guess.PowerStatMonitor` picks the best available source —
-INA219, powerstat/RAPL, battery rails, or a CPU-load estimate — and reports each
-sample as a :class:`~powerguess.reading.Reading` that records its provenance, so
-a guess is never mistaken for a measurement. A :class:`~powerguess.calibration.Calibration`
-pins the estimate to the user's device, and the :class:`~powerguess.calibration.AutoCalibrator`
-learns it from measured readings over time.
+A dependency-light power library. :class:`~powerguess.guess.PowerStatMonitor`
+picks the best available *whole-device* power source — INA219, Raspberry Pi PMIC
+(Pi 5), battery rails, powerstat — and otherwise estimates from CPU load against a
+per-device profile. Every sample is a :class:`~powerguess.reading.Reading` that
+records its provenance, so a guess is never mistaken for a measurement. A
+:class:`~powerguess.calibration.Calibration` pins the estimate to the device;
+:class:`~powerguess.calibration.AutoCalibrator` learns it from measured readings.
 
-:mod:`powerguess.mqtt_client` / ``python -m powerguess`` publishes readings to
-MQTT with Home Assistant auto-discovery. No Home Assistant or OVOS dependency.
+This package is I/O-bridge free — it computes watts and nothing else. For the
+Home Assistant / MQTT bridge and system telemetry (CPU/GPU temperature,
+throttling, …) see the companion **linux2mqtt** project, which builds on this.
 """
 from powerguess.calibration import AutoCalibrator, Calibration
 from powerguess.guess import PowerStatMonitor

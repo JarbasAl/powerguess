@@ -1,6 +1,31 @@
 import os
 import subprocess
 
+try:
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None
+
+
+def read_cpu_temp() -> float:
+    """Best-effort CPU temperature in °C (thermal/DVFS tracks power, so it is a
+    useful model feature; shared with the bridge's CPU telemetry)."""
+    try:
+        temps = psutil.sensors_temperatures() if psutil else {}
+        for key in ("coretemp", "cpu_thermal", "k10temp", "acpitz"):
+            if temps.get(key):
+                return float(temps[key][0].current)
+        for entries in temps.values():
+            if entries:
+                return float(entries[0].current)
+    except Exception:
+        pass
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            return int(f.read().strip()) / 1000.0
+    except (OSError, ValueError):
+        return 0.0
+
 
 def transform_range(value: float, r1: tuple, r2: tuple):
     """Linearly map ``value`` from range ``r1`` (x, y) to range ``r2`` (X, Y)."""

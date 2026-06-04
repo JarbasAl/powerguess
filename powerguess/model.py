@@ -18,7 +18,7 @@ from typing import Dict, Optional
 
 import psutil
 
-from .cpu import read_cpu_temp
+from .utils import read_cpu_temp
 
 # The ordered feature names a model expects; the dataset collector emits the same.
 FEATURES = ["cpu_percent", "cpu_freq_mhz", "n_cores", "load_avg_1m",
