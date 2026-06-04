@@ -49,6 +49,23 @@ def _build_rapl():
     return None
 
 
+def _build_gpu():
+    if not Config.USE_GPU:
+        return None, False
+    try:
+        from .gpu import NvidiaGPU
+        if NvidiaGPU.available():
+            gpu = NvidiaGPU(index=Config.GPU_INDEX)
+            first = gpu.read()
+            if first is not None:
+                LOG.info("GPU detected: %s (power %s)", first.name,
+                         "available" if first.power_valid else "unreliable — not published")
+                return gpu, first.power_valid
+    except Exception as exc:  # noqa: BLE001
+        LOG.debug("GPU telemetry unavailable: %s", exc)
+    return None, False
+
+
 def _build_predictor():
     if not Config.MODEL_FILE:
         return None
@@ -82,19 +99,24 @@ def main() -> None:
         energy_file=Config.ENERGY_FILE or None,
     )
 
-    mqtt_client = MQTTClient(has_battery=monitor.has_battery)
+    gpu, gpu_power_ok = _build_gpu()
+    mqtt_client = MQTTClient(has_battery=monitor.has_battery,
+                             has_gpu=gpu is not None, has_gpu_power=gpu_power_ok)
     mqtt_client.connect()
     mqtt_client.publish_model(monitor.model)
 
     dataset_fh = open(Config.DATASET_FILE, "a") if Config.DATASET_FILE else None
 
     def on_reading(reading: Reading) -> None:
+        gpu_reading = gpu.read() if gpu is not None else None
         if mqtt_client.publish_reading(reading, energy_wh=monitor.energy_wh,
                                        bounds=monitor.bounds()):
             LOG.debug("%.2f W [%s] energy=%.4f kWh", reading.power, reading.source,
                       monitor.energy_wh / 1000)
             if monitor.has_battery:
                 mqtt_client.publish_battery(monitor.get_battery())
+            if gpu_reading is not None:
+                mqtt_client.publish_gpu(gpu_reading)
         if dataset_fh and reading.measured:
             from .model import current_features, device_arch
             dataset_fh.write(json.dumps({

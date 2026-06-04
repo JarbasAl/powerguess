@@ -25,6 +25,10 @@ class Config:
     INA219_ADDRESS: int = int(os.getenv("INA219_ADDRESS", "0x40"), 0)
     INA219_SHUNT_OHMS: float = float(os.getenv("INA219_SHUNT_OHMS", "0.1"))
 
+    # GPU telemetry (NVIDIA via nvidia-smi) published as its own entities
+    USE_GPU: bool = os.getenv("USE_GPU", "true").lower() == "true"
+    GPU_INDEX: int = int(os.getenv("GPU_INDEX", "0"))
+
     # Optional trained predictor model (JSON of linear coefficients)
     MODEL_FILE: str = os.getenv("MODEL_FILE", "")
 

@@ -22,6 +22,15 @@ A single device, **PowerGuess** (`powerguess_01` by default), exposing:
 | `sensor.powerguess_cost` | currency | energy × tariff (only if `ENERGY_TARIFF` set) |
 | `sensor.powerguess_model` | — | — |
 
+On a machine with an NVIDIA GPU it also breaks the GPU out as its own component:
+
+| Entity | Unit | Notes |
+| --- | --- | --- |
+| `sensor.powerguess_gpu_utilization` | % | |
+| `sensor.powerguess_gpu_temperature` | °C | |
+| `sensor.powerguess_gpu_memory` | % | VRAM used |
+| `sensor.powerguess_gpu_power` | W | only when `nvidia-smi` reports a credible value (validated against the power limit; some laptop GPUs report garbage and are skipped) |
+
 The **source** and **error margin** sensors tell you whether the power figure is
 measured or estimated; **floor**/**ceiling** show the [envelope](theory.md) the
 estimate sits in. All entities are tied to an MQTT **availability** topic with a

@@ -64,6 +64,13 @@ RAPL (x86 package power via `/sys/class/powercap`) is detected and used
 automatically when readable — no configuration, no `sudo`, preferred over
 `powerstat`.
 
+## GPU component (NVIDIA)
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `USE_GPU` | `true` | publish GPU utilization/temperature/memory (and power, if credible) as their own entities, via `nvidia-smi` |
+| `GPU_INDEX` | `0` | which GPU to read |
+
 ## Logging
 
 | Variable | Default |

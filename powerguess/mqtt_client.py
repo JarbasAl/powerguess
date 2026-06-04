@@ -22,9 +22,12 @@ class MQTTClient:
         ``paho.mqtt`` client is created when omitted.
     """
 
-    def __init__(self, has_battery: bool = False, client=None) -> None:
+    def __init__(self, has_battery: bool = False, has_gpu: bool = False,
+                 has_gpu_power: bool = False, client=None) -> None:
         self._prefix = Config.MQTT_TOPIC_PREFIX
         self._availability = f"{self._prefix}/availability"
+        self._has_gpu = has_gpu
+        self._has_gpu_power = has_gpu_power
         self.client = client or new_client(Config.MQTT_CLIENT_ID)
         if client is None:
             if Config.MQTT_USER and Config.MQTT_PASSWORD:
@@ -136,6 +139,11 @@ class MQTTClient:
     def publish_model(self, model: str) -> None:
         self._publish(f"{self._prefix}/model", json.dumps({"model": model or "unknown"}))
 
+    def publish_gpu(self, gpu_reading) -> None:
+        if gpu_reading is None:
+            return
+        self._publish(f"{self._prefix}/gpu", json.dumps(gpu_reading.as_dict()))
+
     def _publish(self, topic: str, payload: str) -> None:
         if not self._connected:
             LOG.debug("MQTT not connected, dropping message to %s", topic)
@@ -186,6 +194,22 @@ class MQTTClient:
                          state_class="total_increasing", icon="mdi:cash")
         self._sensor("Model", "model", f"{self._prefix}/model",
                      "{{ value_json.model }}", device, icon="mdi:cpu-64-bit")
+
+        if self._has_gpu:
+            gpu = f"{self._prefix}/gpu"
+            self._sensor("GPU Utilization", "gpu_utilization", gpu,
+                         "{{ value_json.utilization }}", device, unit="%",
+                         state_class="measurement", icon="mdi:expansion-card")
+            self._sensor("GPU Temperature", "gpu_temperature", gpu,
+                         "{{ value_json.temperature }}", device, unit="°C",
+                         device_class="temperature", state_class="measurement")
+            self._sensor("GPU Memory", "gpu_memory", gpu,
+                         "{{ value_json.memory_percent }}", device, unit="%",
+                         state_class="measurement", icon="mdi:memory")
+            if self._has_gpu_power:
+                self._sensor("GPU Power", "gpu_power", gpu, "{{ value_json.power }}",
+                             device, unit="W", device_class="power",
+                             state_class="measurement", icon="mdi:expansion-card-variant")
 
         if self._has_battery:
             bat = f"{self._prefix}/battery"

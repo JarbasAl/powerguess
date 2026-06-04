@@ -15,6 +15,7 @@ paho-mqtt; the OVOS PHAL integration is an optional extra.
 | `powerguess/calibration.py` | `Calibration` + `AutoCalibrator` (manual/file/env/PSU + percentile-learned idle/peak) |
 | `powerguess/ina219.py` | optional INA219 I²C reader (`ina219` extra) |
 | `powerguess/rapl.py` | x86 RAPL powercap reader (measured, no sudo) |
+| `powerguess/gpu.py` | NVIDIA GPU telemetry via nvidia-smi (validated power, util, temp, mem) — own HA entities |
 | `powerguess/model.py` | `FEATURES`, `current_features`, `LinearPredictor` (pluggable estimate) |
 | `powerguess/_mqtt.py` | paho 1.x/2.x client factory |
 | `powerguess/utils.py` | `/sys` battery reads, model detection, `transform_range` |
