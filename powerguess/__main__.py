@@ -86,7 +86,14 @@ def main() -> None:
     auto = AutoCalibrator(Config.CALIBRATION_FILE) if Config.AUTO_CALIBRATE else None
 
     from . import rpi
+    # vcgencmd present (any Pi) -> throttling/undervoltage sensors.
     has_rpi = Config.USE_RPI and rpi.available()
+    # PMIC ADC power is Pi 5 only; probe once so we don't poll a failing call
+    # every cycle on a Pi 3/4.
+    has_pmic = has_rpi and rpi.pmic_available()
+    if has_rpi:
+        LOG.info("Raspberry Pi: throttling sensors on; PMIC board power %s",
+                 "available (Pi 5)" if has_pmic else "unavailable (Pi 3/4 — use an INA219 HAT)")
 
     monitor = PowerStatMonitor(
         smooth=Config.SMOOTH,
@@ -94,7 +101,7 @@ def main() -> None:
         calibration=calibration,
         auto_calibrator=auto,
         ina219=_build_ina219(),
-        pmic=has_rpi,
+        pmic=has_pmic,
         predictor=_build_predictor(),
         prefer_battery=Config.PREFER_BATTERY,
         use_powerstat=Config.USE_POWERSTAT,

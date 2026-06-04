@@ -58,6 +58,15 @@ def pmic_power() -> Optional[float]:
     return parse_pmic_adc(out) if out else None
 
 
+def pmic_available() -> bool:
+    """True only where ``pmic_read_adc`` yields power — i.e. a Pi 5.
+
+    Pi 3/4 have a PMIC but expose no ADC telemetry, so this is False there and
+    PowerGuess won't poll it every cycle.
+    """
+    return pmic_power() is not None
+
+
 def parse_throttled(text: str) -> Dict[str, bool]:
     """Decode a ``throttled=0x…`` value into named flags."""
     try:

@@ -45,3 +45,11 @@ def test_parse_throttled_garbage():
 
 def test_available_is_bool():
     assert isinstance(available(), bool)
+
+
+def test_pmic_available(monkeypatch):
+    import powerguess.rpi as rpi
+    monkeypatch.setattr(rpi, "pmic_power", lambda: 5.2)   # Pi 5
+    assert rpi.pmic_available() is True
+    monkeypatch.setattr(rpi, "pmic_power", lambda: None)  # Pi 3/4
+    assert rpi.pmic_available() is False
