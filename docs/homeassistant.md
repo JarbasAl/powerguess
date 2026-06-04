@@ -15,14 +15,23 @@ A single device, **PowerGuess** (`powerguess_01` by default), exposing:
 | `sensor.powerguess_current` | A | current |
 | `sensor.powerguess_voltage` | V | voltage |
 | `sensor.powerguess_energy` | kWh | energy (total_increasing) |
-| `sensor.powerguess_source` | — | provenance: `ina219`/`rapl`/`powerstat`/`battery`/`estimate` |
+| `sensor.powerguess_source` | — | provenance: `ina219`/`powerstat`/`battery`/`estimate` |
 | `sensor.powerguess_error_margin` | W | ± band on an estimate |
 | `sensor.powerguess_power_floor` | W | idle floor (envelope lower bound) |
 | `sensor.powerguess_power_ceiling` | W | peak/PSU ceiling (envelope upper bound) |
 | `sensor.powerguess_cost` | currency | energy × tariff (only if `ENERGY_TARIFF` set) |
 | `sensor.powerguess_model` | — | — |
 
-On a machine with an NVIDIA GPU it also breaks the GPU out as its own component:
+It also breaks out per-component telemetry. **CPU** (always):
+
+| Entity | Unit | Notes |
+| --- | --- | --- |
+| `sensor.powerguess_cpu_utilization` | % | |
+| `sensor.powerguess_cpu_frequency` | MHz | |
+| `sensor.powerguess_cpu_temperature` | °C | |
+| `sensor.powerguess_cpu_power` | W | CPU **package** power via RAPL — only when `/sys/class/powercap/.../energy_uj` is readable (often root-only) |
+
+**GPU** (NVIDIA):
 
 | Entity | Unit | Notes |
 | --- | --- | --- |

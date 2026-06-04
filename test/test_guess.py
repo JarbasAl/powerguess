@@ -89,16 +89,16 @@ def test_energy_persists_across_restart(tmp_path):
     assert round(m2.energy_wh, 1) == 10.0  # restored
 
 
-def test_measure_prefers_rapl():
-    class FakeRapl:
+def test_measure_prefers_ina219():
+    class FakeINA:
         def read(self):
-            return 0.0, 0.0, 7.5  # (v, i, watts)
+            return 5.0, 1.0, 5.0  # (v, i, watts)
 
-    m = PowerStatMonitor(use_powerstat=False, rapl=FakeRapl())
+    m = PowerStatMonitor(use_powerstat=False, ina219=FakeINA())
     m.has_battery = False
     r = m.measure()
-    assert r.source == "rapl" and r.measured is True
-    assert r.power >= 7.5
+    assert r.source == "ina219" and r.measured is True
+    assert r.power == 5.0
 
 
 def test_bounds_returns_envelope():

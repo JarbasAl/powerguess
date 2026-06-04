@@ -23,11 +23,14 @@ class MQTTClient:
     """
 
     def __init__(self, has_battery: bool = False, has_gpu: bool = False,
-                 has_gpu_power: bool = False, client=None) -> None:
+                 has_gpu_power: bool = False, has_cpu: bool = False,
+                 has_cpu_power: bool = False, client=None) -> None:
         self._prefix = Config.MQTT_TOPIC_PREFIX
         self._availability = f"{self._prefix}/availability"
         self._has_gpu = has_gpu
         self._has_gpu_power = has_gpu_power
+        self._has_cpu = has_cpu
+        self._has_cpu_power = has_cpu_power
         self.client = client or new_client(Config.MQTT_CLIENT_ID)
         if client is None:
             if Config.MQTT_USER and Config.MQTT_PASSWORD:
@@ -144,6 +147,11 @@ class MQTTClient:
             return
         self._publish(f"{self._prefix}/gpu", json.dumps(gpu_reading.as_dict()))
 
+    def publish_cpu(self, cpu_reading) -> None:
+        if cpu_reading is None:
+            return
+        self._publish(f"{self._prefix}/cpu", json.dumps(cpu_reading.as_dict()))
+
     def _publish(self, topic: str, payload: str) -> None:
         if not self._connected:
             LOG.debug("MQTT not connected, dropping message to %s", topic)
@@ -194,6 +202,22 @@ class MQTTClient:
                          state_class="total_increasing", icon="mdi:cash")
         self._sensor("Model", "model", f"{self._prefix}/model",
                      "{{ value_json.model }}", device, icon="mdi:cpu-64-bit")
+
+        if self._has_cpu:
+            cpu = f"{self._prefix}/cpu"
+            self._sensor("CPU Utilization", "cpu_utilization", cpu,
+                         "{{ value_json.utilization }}", device, unit="%",
+                         state_class="measurement", icon="mdi:cpu-64-bit")
+            self._sensor("CPU Frequency", "cpu_frequency", cpu,
+                         "{{ value_json.frequency_mhz }}", device, unit="MHz",
+                         device_class="frequency", state_class="measurement")
+            self._sensor("CPU Temperature", "cpu_temperature", cpu,
+                         "{{ value_json.temperature }}", device, unit="°C",
+                         device_class="temperature", state_class="measurement")
+            if self._has_cpu_power:
+                self._sensor("CPU Power", "cpu_power", cpu, "{{ value_json.power }}",
+                             device, unit="W", device_class="power",
+                             state_class="measurement", icon="mdi:cpu-64-bit")
 
         if self._has_gpu:
             gpu = f"{self._prefix}/gpu"

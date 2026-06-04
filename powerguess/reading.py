@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 
-# Sources, ordered most → least trustworthy.
-MEASURED_SOURCES = ("ina219", "rapl", "powerstat", "battery")
+# Whole-device sources, ordered most → least trustworthy. (RAPL is CPU-package
+# only, so it is a component in powerguess.cpu, not a total-device source.)
+MEASURED_SOURCES = ("ina219", "powerstat", "battery")
 ESTIMATED_SOURCE = "estimate"
 
 

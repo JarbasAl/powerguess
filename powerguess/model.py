@@ -18,28 +18,11 @@ from typing import Dict, Optional
 
 import psutil
 
+from .cpu import read_cpu_temp
+
 # The ordered feature names a model expects; the dataset collector emits the same.
 FEATURES = ["cpu_percent", "cpu_freq_mhz", "n_cores", "load_avg_1m",
             "cpu_temp_c", "has_battery"]
-
-
-def _cpu_temp() -> float:
-    """Best-effort CPU temperature in °C (thermal/DVFS tracks power)."""
-    try:
-        temps = psutil.sensors_temperatures()
-        for key in ("coretemp", "cpu_thermal", "k10temp", "acpitz"):
-            if temps.get(key):
-                return float(temps[key][0].current)
-        for entries in temps.values():
-            if entries:
-                return float(entries[0].current)
-    except Exception:
-        pass
-    try:  # Raspberry Pi / generic sysfs
-        with open("/sys/class/thermal/thermal_zone0/temp") as f:
-            return int(f.read().strip()) / 1000.0
-    except (OSError, ValueError):
-        return 0.0
 
 
 def current_features(monitor=None) -> Dict[str, float]:
@@ -55,7 +38,7 @@ def current_features(monitor=None) -> Dict[str, float]:
         "cpu_freq_mhz": float(freq.current) if freq else 0.0,
         "n_cores": float(psutil.cpu_count() or 1),
         "load_avg_1m": float(load1),
-        "cpu_temp_c": _cpu_temp(),
+        "cpu_temp_c": read_cpu_temp(),
         "has_battery": 1.0 if has_battery else 0.0,
     }
 

@@ -60,16 +60,18 @@ All settings are environment variables, read once at startup.
 | `ENERGY_TARIFF` | `0` | price per kWh; when > 0 a cost sensor is published |
 | `CURRENCY` | `EUR` | unit for the cost sensor |
 
-RAPL (x86 package power via `/sys/class/powercap`) is detected and used
-automatically when readable — no configuration, no `sudo`, preferred over
-`powerstat`.
+## Components
 
-## GPU component (NVIDIA)
+The CPU and GPU are tracked as their own entities (not as the total).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `USE_GPU` | `true` | publish GPU utilization/temperature/memory (and power, if credible) as their own entities, via `nvidia-smi` |
+| `USE_CPU` | `true` | publish CPU utilization/frequency/temperature; plus CPU **package** power via RAPL when `/sys/class/powercap/.../energy_uj` is readable (often root-only) |
+| `USE_GPU` | `true` | publish GPU utilization/temperature/memory (and power, if credible) via `nvidia-smi` |
 | `GPU_INDEX` | `0` | which GPU to read |
+
+Note: RAPL measures the CPU package only, so it is a component — not the
+whole-device total. The total comes from INA219 / battery / the estimate.
 
 ## Logging
 

@@ -38,15 +38,14 @@ def _build_ina219():
         return None
 
 
-def _build_rapl():
-    try:
-        from .rapl import RaplReader, available
-        if available():
-            LOG.info("RAPL available — using measured x86 package power")
-            return RaplReader()
-    except Exception as exc:  # noqa: BLE001
-        LOG.debug("RAPL unavailable: %s", exc)
-    return None
+def _build_cpu():
+    if not Config.USE_CPU:
+        return None, False
+    from .cpu import CPUMonitor
+    cpu = CPUMonitor()
+    if cpu.power_available():
+        LOG.info("CPU package power available via RAPL")
+    return cpu, cpu.power_available()
 
 
 def _build_gpu():
@@ -92,16 +91,17 @@ def main() -> None:
         calibration=calibration,
         auto_calibrator=auto,
         ina219=_build_ina219(),
-        rapl=_build_rapl(),
         predictor=_build_predictor(),
         prefer_battery=Config.PREFER_BATTERY,
         use_powerstat=Config.USE_POWERSTAT,
         energy_file=Config.ENERGY_FILE or None,
     )
 
+    cpu, cpu_power_ok = _build_cpu()
     gpu, gpu_power_ok = _build_gpu()
     mqtt_client = MQTTClient(has_battery=monitor.has_battery,
-                             has_gpu=gpu is not None, has_gpu_power=gpu_power_ok)
+                             has_gpu=gpu is not None, has_gpu_power=gpu_power_ok,
+                             has_cpu=cpu is not None, has_cpu_power=cpu_power_ok)
     mqtt_client.connect()
     mqtt_client.publish_model(monitor.model)
 
@@ -117,6 +117,8 @@ def main() -> None:
                 mqtt_client.publish_battery(monitor.get_battery())
             if gpu_reading is not None:
                 mqtt_client.publish_gpu(gpu_reading)
+            if cpu is not None:
+                mqtt_client.publish_cpu(cpu.read())
         if dataset_fh and reading.measured:
             from .model import current_features, device_arch
             dataset_fh.write(json.dumps({

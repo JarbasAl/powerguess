@@ -59,7 +59,7 @@ class PowerStatMonitor(threading.Thread):
     def __init__(self, smooth: bool = False, time_between_measures: float = 5,
                  calibration: Optional[Calibration] = None,
                  auto_calibrator: Optional[AutoCalibrator] = None,
-                 ina219=None, rapl=None, predictor=None, prefer_battery: bool = False,
+                 ina219=None, predictor=None, prefer_battery: bool = False,
                  use_powerstat: bool = True, energy_file: Optional[str] = None):
         super().__init__(daemon=True)
         self.smooth = smooth
@@ -75,7 +75,6 @@ class PowerStatMonitor(threading.Thread):
         self._last_ts: Optional[float] = None
         self.has_battery = bool(self.get_battery())
         self.ina = ina219
-        self.rapl = rapl
         self.predictor = predictor
         self.calibration = calibration
         self.auto = auto_calibrator
@@ -160,26 +159,15 @@ class PowerStatMonitor(threading.Thread):
             except Exception as exc:  # noqa: BLE001 - hardware optional
                 print(f"INA219 read failed: {exc}")
 
-        # 2. RAPL — measured x86 package power straight from sysfs (no sudo).
-        if self.rapl is not None and not self.prefer_battery:
-            try:
-                result = self.rapl.read()
-                if result and result[2]:
-                    v = self.benchmarks["avg"].get("voltage") or 0
-                    _, _, p = result
-                    pb, _, _ = self.get_battery_consumption()
-                    p += pb
-                    return Reading(p, v, (p / v if v else 0), "rapl")
-            except Exception as exc:  # noqa: BLE001
-                print(f"RAPL read failed: {exc}")
-
-        # 3. Battery discharge — measured device input.
+        # 2. Battery discharge — measured device input (whole device).
         if self.has_battery:
             p, v, i = self.get_battery_output()
             if p:
                 return Reading(p, v, i, "battery")
 
-        # 4. powerstat — measured (x86, privileged) fallback when RAPL is absent.
+        # 3. powerstat — measured (x86, privileged) system-power fallback.
+        # (RAPL is CPU-package only, so it's a component — see powerguess.cpu —
+        #  not a whole-device total source.)
         if self.use_powerstat and not self.prefer_battery:
             p = self._powerstat_once()
             if p:

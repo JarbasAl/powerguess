@@ -18,9 +18,11 @@ Home Assistant dependency.
 | Battery rails (`/sys`) | devices on battery | measured |
 | CPU-load estimate | everything else (headless Pi, SBC, mini PC) | estimated, with an error band |
 
-On a machine with an NVIDIA GPU it also breaks the **GPU out as its own
-component** — utilization, temperature, VRAM, and (when `nvidia-smi` reports a
-credible value) GPU power — as separate Home Assistant entities.
+It also breaks out **per-component telemetry** as separate Home Assistant
+entities: the **CPU** (utilization, frequency, temperature, and package power via
+RAPL when readable) and the **GPU** (utilization, temperature, VRAM, and power
+when `nvidia-smi` reports a credible value). RAPL measures the CPU package only,
+so it's a component — not the whole-device total.
 
 Every reading reports its `source` and, when estimated, an `error_margin`. The
 estimate uses a per-device **calibration** (idle/peak watts) when available —
