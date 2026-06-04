@@ -8,8 +8,23 @@ All settings are environment variables, read once at startup.
 | --- | --- | --- |
 | `MEASURE_INTERVAL` | `5` | seconds between measurements |
 | `PUBLISH_INTERVAL` | `5` | minimum seconds between MQTT publishes |
+| `PUBLISH_DELTA` | `0.5` | publish early when power moves by this many W (0 disables) |
 | `SMOOTH` | `false` | rolling-average the powerstat readings |
 | `PREFER_BATTERY` | `false` | trust battery rails over the estimate when discharging |
+| `USE_POWERSTAT` | `true` | use powerstat/RAPL when installed and privileged |
+
+## Calibration & sources
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CALIBRATION_FILE` | _(none)_ | JSON calibration to load, and where auto-calibration is saved |
+| `CALIBRATION_IDLE_W` / `CALIBRATION_LOAD_W` | _(none)_ | manual idle/peak watts |
+| `CALIBRATION_VOLTAGE` | `5.0` | supply voltage for manual calibration |
+| `AUTO_CALIBRATE` | `true` | learn idle/peak from measured readings |
+| `USE_INA219` | `false` | read an INA219 I²C power monitor (needs `[ina219]`) |
+| `INA219_BUS` / `INA219_ADDRESS` / `INA219_SHUNT_OHMS` | `1` / `0x40` / `0.1` | INA219 wiring |
+| `MODEL_FILE` | _(none)_ | trained predictor JSON (see dataset.md) |
+| `DATASET_FILE` | _(none)_ | append measured `features→watts` rows here |
 
 ## MQTT
 

@@ -1,18 +1,24 @@
-"""PowerGuess — estimate the live power draw of a Linux device.
+"""PowerGuess — estimate (or measure) the live power draw of a Linux device.
 
-The core :class:`~powerguess.guess.PowerStatMonitor` reads ``powerstat`` when
-available, falls back to a per-model CPU-load estimate, and reads battery rails
-directly from ``/sys/class/power_supply``. It has no Home Assistant or OVOS
-dependency.
+:class:`~powerguess.guess.PowerStatMonitor` picks the best available source —
+INA219, powerstat/RAPL, battery rails, or a CPU-load estimate — and reports each
+sample as a :class:`~powerguess.reading.Reading` that records its provenance, so
+a guess is never mistaken for a measurement. A :class:`~powerguess.calibration.Calibration`
+pins the estimate to the user's device, and the :class:`~powerguess.calibration.AutoCalibrator`
+learns it from measured readings over time.
 
-Two integrations live alongside it:
-
-- :mod:`powerguess.mqtt_client` / ``python -m powerguess`` — publish readings to
-  MQTT with Home Assistant auto-discovery (the recommended path).
-- :mod:`powerguess.sensors` / :mod:`powerguess.device` — the OVOS PHAL sensor
-  integration, available with the ``phal`` extra.
+:mod:`powerguess.mqtt_client` / ``python -m powerguess`` publishes readings to
+MQTT with Home Assistant auto-discovery. No Home Assistant or OVOS dependency.
 """
+from powerguess.calibration import AutoCalibrator, Calibration
 from powerguess.guess import PowerStatMonitor
+from powerguess.reading import Reading
 from powerguess.version import __version__
 
-__all__ = ["PowerStatMonitor", "__version__"]
+__all__ = [
+    "PowerStatMonitor",
+    "Reading",
+    "Calibration",
+    "AutoCalibrator",
+    "__version__",
+]

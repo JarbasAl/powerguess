@@ -14,9 +14,14 @@ A single device, **PowerGuess** (`powerguess_01` by default), exposing:
 | `sensor.powerguess_power` | W | power |
 | `sensor.powerguess_current` | A | current |
 | `sensor.powerguess_voltage` | V | voltage |
+| `sensor.powerguess_energy` | kWh | energy (total_increasing) |
+| `sensor.powerguess_source` | — | provenance: `ina219`/`powerstat`/`battery`/`estimate` |
+| `sensor.powerguess_error_margin` | W | ± band on an estimate |
 | `sensor.powerguess_model` | — | — |
 
-On devices with a battery it adds `battery_level` (%), `battery_power` (W),
+The **source** and **error margin** sensors tell you whether the power figure is
+measured or estimated — use them in automations that need to trust the value. On
+devices with a battery it also adds `battery_level` (%), `battery_power` (W),
 `battery_status`, and the `charging` binary sensor.
 
 Run more than one instance by giving each a unique `DEVICE_ID` / `DEVICE_NAME`
@@ -55,27 +60,16 @@ severity:
 
 ## Energy dashboard
 
-The power sensor carries `state_class: measurement`, so a Riemann-sum helper
-turns it into the cumulative energy the Energy dashboard needs:
-
-```yaml
-# configuration.yaml
-sensor:
-  - platform: integration
-    source: sensor.powerguess_power
-    name: powerguess_energy
-    unit_prefix: k
-    round: 3
-    method: trapezoidal
-```
-
-Add `sensor.powerguess_energy` under **Settings → Energy → Individual devices**.
+PowerGuess integrates power over time itself and publishes
+`sensor.powerguess_energy` (kWh, `state_class: total_increasing`) — add it
+directly under **Settings → Energy → Individual devices**. No Riemann-sum helper
+needed. (The counter resets when the service restarts.)
 
 ## MQTT topics
 
 | Topic | Payload |
 | --- | --- |
-| `powerguess/state` | `{"power", "voltage", "current", "timestamp"}` |
+| `powerguess/state` | `{"power", "voltage", "current", "source", "measured", "error_margin", "energy", "timestamp"}` |
 | `powerguess/battery` | `{"level", "status", "charging", "power", "voltage"}` |
 | `powerguess/model` | `{"model"}` |
 | `homeassistant/sensor/<id>/<key>/config` | discovery (retained) |

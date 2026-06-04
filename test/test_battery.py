@@ -12,36 +12,39 @@ def _patch_battery(monkeypatch, battery):
                         lambda: iter([battery]) if battery else iter([]))
 
 
+def _monitor():
+    return PowerStatMonitor(use_powerstat=False)
+
+
 def test_get_battery(monkeypatch):
     _patch_battery(monkeypatch, CHARGING)
-    assert PowerStatMonitor.get_battery()["status"] == "Charging"
+    assert _monitor().get_battery()["status"] == "Charging"
 
 
 def test_get_battery_none(monkeypatch):
     _patch_battery(monkeypatch, None)
-    assert PowerStatMonitor.get_battery() is None
+    assert _monitor().get_battery() is None
 
 
-def test_battery_consumption_when_charging(monkeypatch):
+def test_consumption_when_charging(monkeypatch):
     _patch_battery(monkeypatch, CHARGING)
-    p, v, i = PowerStatMonitor.get_battery_consumption()
-    assert p == 9.1
-    assert PowerStatMonitor.get_battery_output() == (0, 0, 0)
+    m = _monitor()
+    assert m.get_battery_consumption()[0] == 9.1
+    assert m.get_battery_output() == (0, 0, 0)
 
 
-def test_battery_output_when_discharging(monkeypatch):
+def test_output_when_discharging(monkeypatch):
     _patch_battery(monkeypatch, DISCHARGING)
-    p, v, i = PowerStatMonitor.get_battery_output()
-    assert p == 12.0
-    assert PowerStatMonitor.get_battery_consumption() == (0, 0, 0)
+    m = _monitor()
+    assert m.get_battery_output()[0] == 12.0
+    assert m.get_battery_consumption() == (0, 0, 0)
 
 
-def test_measure_powerstat_fallback_yields_estimate(monkeypatch):
-    # No powerstat binary -> the estimate fallback path must yield a reading.
-    monkeypatch.setattr(guess, "find_executable", lambda name: None)
-    _patch_battery(monkeypatch, None)
-    PowerStatMonitor.set_model("Raspberry Pi 4 Model B")
-    m = PowerStatMonitor()
-    m.disable_powerstat = None
-    readings = list(m.measure_powerstat())
-    assert readings and len(readings[0]) == 3
+def test_measure_uses_battery_when_discharging(monkeypatch):
+    _patch_battery(monkeypatch, DISCHARGING)
+    m = _monitor()
+    m.has_battery = True
+    reading = m.measure()
+    assert reading.source == "battery"
+    assert reading.measured is True
+    assert reading.power == 12.0

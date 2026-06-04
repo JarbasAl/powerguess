@@ -4,20 +4,24 @@ Estimate the live power draw of a Linux device and publish it to MQTT with Home
 Assistant auto-discovery — a power sensor for any headless box (Raspberry Pi, mini
 PC, SBC, laptop) that has no smart plug.
 
-PowerGuess reads `powerstat` when it's available and privileged, falls back to a
-per-model CPU-load estimate otherwise, and reads battery rails directly from
-`/sys/class/power_supply`. The core has no Home Assistant or OVOS dependency.
+PowerGuess picks the best available source and **labels every reading with where
+it came from**, so a guess is never mistaken for a measurement. The core has no
+Home Assistant dependency.
 
-## How it estimates
+## Sources (best → fallback)
 
 | Source | When | Accuracy |
 | --- | --- | --- |
-| `powerstat` (RAPL) | x86 with privileges | live, accurate |
-| Battery rails (`/sys`) | devices with a battery | live, accurate |
-| Per-model CPU-load curve | everything else (Pi, SBC, mini PC) | estimate from bundled benchmarks |
+| INA219 (I²C) | a power-monitor HAT is wired (`pip install powerguess[ina219]`) | measured |
+| `powerstat` (RAPL) | x86 with privileges | measured |
+| Battery rails (`/sys`) | devices on battery | measured |
+| CPU-load estimate | everything else (headless Pi, SBC, mini PC) | estimated, with an error band |
 
-Bundled benchmark profiles cover the Raspberry Pi family and generic
-laptop / SBC / mini-PC / PC fallbacks.
+Every reading reports its `source` and, when estimated, an `error_margin`. The
+estimate uses a per-device **calibration** (idle/peak watts) when available —
+provided by hand, or learned automatically from a measured source over time — and
+falls back to bundled per-model benchmark profiles. See
+[docs/calibration.md](docs/calibration.md).
 
 ## Quick start (Home Assistant)
 
@@ -36,8 +40,7 @@ for entities, a dashboard card, and an energy-integration recipe. A
 ## Install
 
 ```bash
-pip install powerguess          # core + MQTT bridge
-pip install powerguess[phal]    # + OVOS PHAL sensor integration
+pip install powerguess
 ```
 
 Run the bridge:
@@ -51,20 +54,28 @@ MQTT_HOST=192.168.1.10 python -m powerguess
 ```python
 from powerguess import PowerStatMonitor
 
-def on_reading(reading, model):
-    power, voltage, current = reading
-    print(f"{power:.1f} W  {current:.2f} A  {voltage:.1f} V")
+def on_reading(reading):
+    tag = reading.source if reading.measured else f"estimate ±{reading.error_margin}W"
+    print(f"{reading.power:.1f} W  {reading.current:.2f} A  [{tag}]")
 
 monitor = PowerStatMonitor()
 monitor.add_callback(on_reading)
 monitor.start()
 ```
 
+## Better accuracy & data
+
+- **[Calibration](docs/calibration.md)** — pin the estimate to your device
+  (manual, auto-learned, or an INA219 measured path).
+- **[Dataset](docs/dataset.md)** — `dataset.py` collects `features → measured
+  watts` from metered devices to train a power-prediction model.
+
 ## Configuration
 
 All settings are environment variables — see
 [docs/configuration.md](docs/configuration.md). Common ones: `MQTT_HOST`,
-`MQTT_USER`/`MQTT_PASSWORD`, `MEASURE_INTERVAL`, `DEVICE_NAME`, `DEVICE_ID`.
+`MQTT_USER`/`MQTT_PASSWORD`, `MEASURE_INTERVAL`, `CALIBRATION_FILE`,
+`USE_INA219`, `DEVICE_NAME`, `DEVICE_ID`.
 
 ## License
 

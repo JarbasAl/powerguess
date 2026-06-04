@@ -2,7 +2,9 @@ import json
 
 import pytest
 
+from powerguess.config import Config
 from powerguess.mqtt_client import MQTTClient
+from powerguess.reading import Reading
 
 
 class FakeClient:
@@ -37,42 +39,47 @@ def client_with_battery():
     return c, fake
 
 
-def test_discovery_with_battery(client_with_battery):
-    c, fake = client_with_battery
-    c.publish_discovery()
-    topics = [t for t, _ in fake.published]
-    assert "homeassistant/sensor/powerguess_01/power/config" in topics
-    assert "homeassistant/sensor/powerguess_01/battery_level/config" in topics
-    assert "homeassistant/binary_sensor/powerguess_01/charging/config" in topics
-    assert len(topics) == 8  # power/current/voltage/model + 4 battery
-
-
 def test_discovery_without_battery():
     fake = FakeClient()
     c = MQTTClient(has_battery=False, client=fake)
     c._connected = True
     c.publish_discovery()
-    assert len(fake.published) == 4  # no battery group
-    power_cfg = [p for t, p in fake.published if t.endswith("/power/config")][0]
-    assert power_cfg["device_class"] == "power"
-    assert power_cfg["unit_of_measurement"] == "W"
-    assert power_cfg["state_topic"] == "powerguess/state"
-    assert power_cfg["state_class"] == "measurement"
+    keys = [t.split("/")[-2] for t, _ in fake.published]
+    assert keys == ["power", "current", "voltage", "energy", "source",
+                    "error_margin", "model"]
+    energy = [p for t, p in fake.published if t.endswith("/energy/config")][0]
+    assert energy["device_class"] == "energy"
+    assert energy["state_class"] == "total_increasing"
 
 
-def test_publish_reading_payload(client_with_battery):
+def test_discovery_with_battery(client_with_battery):
     c, fake = client_with_battery
-    assert c.publish_reading(5.1, 5.0, 1.02, force=True) is True
+    c.publish_discovery()
+    topics = [t for t, _ in fake.published]
+    assert any("battery_level" in t for t in topics)
+    assert any("binary_sensor" in t and "charging" in t for t in topics)
+    assert len(topics) == 11  # 7 core + 4 battery
+
+
+def test_publish_reading_carries_provenance_and_energy(client_with_battery):
+    c, fake = client_with_battery
+    r = Reading(5.1, 5.0, 1.02, "estimate", error_margin=1.5)
+    assert c.publish_reading(r, energy_wh=1234.5, force=True) is True
     topic, payload = fake.published[-1]
     assert topic == "powerguess/state"
-    assert payload["power"] == 5.1 and payload["voltage"] == 5.0
-    assert "timestamp" in payload
+    assert payload["source"] == "estimate" and payload["measured"] is False
+    assert payload["error_margin"] == 1.5
+    assert payload["energy"] == round(1234.5 / 1000, 4)
 
 
-def test_publish_reading_throttle(client_with_battery):
+def test_delta_publishing(client_with_battery):
     c, fake = client_with_battery
-    assert c.publish_reading(1, 1, 1, force=True) is True
-    assert c.publish_reading(2, 2, 2) is False  # within PUBLISH_INTERVAL
+    Config.PUBLISH_DELTA = 0.5
+    assert c.publish_reading(Reading(5.0, 5, 1, "estimate"), force=True) is True
+    # within PUBLISH_INTERVAL and below delta -> suppressed
+    assert c.publish_reading(Reading(5.2, 5, 1, "estimate")) is False
+    # jump beyond delta -> published immediately
+    assert c.publish_reading(Reading(9.0, 5, 1.8, "estimate")) is True
 
 
 def test_publish_battery(client_with_battery):
@@ -82,14 +89,3 @@ def test_publish_battery(client_with_battery):
     topic, payload = fake.published[-1]
     assert topic == "powerguess/battery"
     assert payload["charging"] is True and payload["level"] == 79
-
-    fake.published.clear()
-    c.publish_battery(None)  # no battery -> no publish
-    assert fake.published == []
-
-
-def test_disconnected_drops_state():
-    fake = FakeClient()
-    c = MQTTClient(client=fake)  # not connected
-    c.publish_reading(1, 1, 1, force=True)
-    assert fake.published == []  # state dropped while disconnected

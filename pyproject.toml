@@ -28,8 +28,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# OVOS PHAL sensor integration (powerguess.sensors / powerguess.device).
-phal = ["ovos-PHAL-sensors>=0.0.0a16", "ovos-plugin-manager", "ovos-config", "ovos-utils"]
+# Optional INA219 I2C power-monitor support (Raspberry Pi / SBC power HATs).
+ina219 = ["smbus2"]
 test = ["pytest>=7", "pytest-cov"]
 
 [project.scripts]
@@ -53,10 +53,6 @@ testpaths = ["test"]
 addopts = "-q"
 
 [tool.coverage.run]
-# The PHAL integration needs the optional `phal` extra (OVOS) and is not
-# exercised by the offline suite; `__main__` is the long-running CLI loop.
-omit = [
-    "powerguess/sensors.py",
-    "powerguess/device.py",
-    "powerguess/__main__.py",
-]
+# `__main__` is the long-running CLI loop, exercised manually rather than in
+# the offline suite.
+omit = ["powerguess/__main__.py"]

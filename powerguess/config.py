@@ -10,7 +10,26 @@ class Config:
     MEASURE_INTERVAL: float = float(os.getenv("MEASURE_INTERVAL", "5"))
     SMOOTH: bool = os.getenv("SMOOTH", "false").lower() == "true"
     PREFER_BATTERY: bool = os.getenv("PREFER_BATTERY", "false").lower() == "true"
+    USE_POWERSTAT: bool = os.getenv("USE_POWERSTAT", "true").lower() == "true"
     PUBLISH_INTERVAL: float = float(os.getenv("PUBLISH_INTERVAL", "5"))
+    # Publish early when power moves by more than this many watts (0 disables).
+    PUBLISH_DELTA: float = float(os.getenv("PUBLISH_DELTA", "0.5"))
+
+    # Calibration
+    CALIBRATION_FILE: str = os.getenv("CALIBRATION_FILE", "")
+    AUTO_CALIBRATE: bool = os.getenv("AUTO_CALIBRATE", "true").lower() == "true"
+
+    # Optional INA219 I2C power monitor
+    USE_INA219: bool = os.getenv("USE_INA219", "false").lower() == "true"
+    INA219_BUS: int = int(os.getenv("INA219_BUS", "1"))
+    INA219_ADDRESS: int = int(os.getenv("INA219_ADDRESS", "0x40"), 0)
+    INA219_SHUNT_OHMS: float = float(os.getenv("INA219_SHUNT_OHMS", "0.1"))
+
+    # Optional trained predictor model (JSON of linear coefficients)
+    MODEL_FILE: str = os.getenv("MODEL_FILE", "")
+
+    # Optional dataset collection (append measured rows as JSONL)
+    DATASET_FILE: str = os.getenv("DATASET_FILE", "")
 
     # MQTT
     MQTT_HOST: str = os.getenv("MQTT_HOST", "localhost")

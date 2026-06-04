@@ -1,232 +1,258 @@
+"""PowerStatMonitor — pick the best available power source and report it.
+
+Source priority, most → least trustworthy:
+
+1. **INA219** I²C power monitor (measured, exact) — see :mod:`powerguess.ina219`.
+2. **powerstat** RAPL on x86 (measured) — when installed and privileged.
+3. **Battery** discharge rails from ``/sys`` (measured) — laptops on battery.
+4. **Estimate** from CPU load against a calibrated idle/load curve.
+
+Every reading is a :class:`~powerguess.reading.Reading` that records its
+``source`` and, for estimates, an ``error_margin`` — so a guess is never mistaken
+for a measurement. Measured readings also feed the :class:`AutoCalibrator`, which
+sharpens future estimates.
+"""
 import json
 import os
 import platform
 import threading
+import time
 from itertools import islice
 from shutil import which as find_executable
 from statistics import mean
+from typing import Callable, List, Optional
 
 import pexpect
 import psutil
 
+from powerguess.calibration import AutoCalibrator, Calibration
+from powerguess.reading import Reading
 from powerguess.utils import get_battery_info, get_model, transform_range
+
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+
+
+def _profile_for(model: str) -> str:
+    """Map a device model string to a bundled benchmark profile filename."""
+    if "Raspberry Pi 4" in model:
+        return "pi4.json"
+    if "Raspberry Pi 3 Model B Plus" in model:
+        return "pi3bplus.json"
+    if "Raspberry Pi 3" in model:
+        return "pi3b.json"
+    if "Raspberry Pi 2" in model:
+        return "pi2b.json"
+    if "Raspberry Pi Zero" in model:
+        return "pi0.json"
+    if "U500-H" in model:
+        return "minipc_generic.json"
+    if platform.machine() == "x86_64" and list(get_battery_info()):
+        return "laptop_generic.json"
+    if platform.machine() == "aarch64" or "Raspberry Pi" in model:
+        return "sbc_generic.json"
+    return "pc_generic.json"
 
 
 class PowerStatMonitor(threading.Thread):
-    running = False
-    current_value = 0, 0, 0  # (p, v, i)
-    prefer_battery = False
-    disable_powerstat = find_executable("powerstat")
-    model = get_model()
-    benchmarks = {}
-    callbacks = []
+    """Background thread that samples power and fans readings out to callbacks."""
 
-    def __init__(self, smooth=False, time_between_measures=5):
+    def __init__(self, smooth: bool = False, time_between_measures: float = 5,
+                 calibration: Optional[Calibration] = None,
+                 auto_calibrator: Optional[AutoCalibrator] = None,
+                 ina219=None, predictor=None, prefer_battery: bool = False,
+                 use_powerstat: bool = True):
         super().__init__(daemon=True)
         self.smooth = smooth
         self.time_between_measures = time_between_measures
-        self.readings = []
+        self.prefer_battery = prefer_battery
+        self.use_powerstat = bool(use_powerstat and find_executable("powerstat"))
+        self.model = get_model() or ""
+        self.benchmarks: dict = {}
+        self.callbacks: List[Callable[[Reading], None]] = []
+        self.readings: List[float] = []
+        self.current: Optional[Reading] = None
+        self.running = False
+        self.energy_wh = 0.0
+        self._last_ts: Optional[float] = None
         self.has_battery = bool(self.get_battery())
-        # Always load a benchmark profile; set_model() falls back to a generic
-        # one (laptop/sbc/pc) when the device model can't be identified.
-        self.set_model(self.model or "")
+        self.ina = ina219
+        self.predictor = predictor
+        self.calibration = calibration
+        self.auto = auto_calibrator
+        self._load_profile()
 
-    @classmethod
-    def set_model(cls, model):
-        cls.model = model
-        if "Raspberry Pi 4" in cls.model:
-            m = "pi4.json"
-        elif "Raspberry Pi 3 Model B Plus" in cls.model:
-            m = "pi3bplus.json"
-        elif "Raspberry Pi 3" in cls.model:
-            m = "pi3b.json"
-        elif "Raspberry Pi 2" in cls.model:
-            m = "pi2b.json"
-        elif "Raspberry Pi Zero" in cls.model:
-            m = "pi0.json"
-        elif "U500-H" in model:
-            m = "minipc_generic.json"
-        # catch all - generic laptop
-        elif platform.machine() == "x86_64" and list(get_battery_info()):
-            m = "laptop_generic.json"
-        # catch all - sbc
-        elif platform.machine() == "aarch64" or "Raspberry Pi" in model:
-            m = "sbc_generic.json"
-        # catch all - PC
+    # --- benchmark profile / calibration -------------------------------------
+
+    def _load_profile(self) -> None:
+        self.set_model(self.model)
+        cal = self.calibration or (self.auto.calibration() if self.auto else None)
+        if cal:
+            self.benchmarks = cal.benchmarks()
+
+    def set_model(self, model: str) -> None:
+        """Load the generic benchmark profile for ``model`` into ``benchmarks``."""
+        self.model = model
+        with open(os.path.join(MODELS_DIR, _profile_for(model or ""))) as f:
+            self.benchmarks = json.load(f)
+
+    def add_callback(self, cb: Callable[[Reading], None]) -> None:
+        self.callbacks.append(cb)
+
+    # --- battery (measured when discharging) ---------------------------------
+
+    def get_battery(self) -> Optional[dict]:
+        bat = list(get_battery_info())
+        return bat[0] if bat else None
+
+    def get_battery_output(self):
+        """Power drawn *from* the battery while discharging — the device input."""
+        bat = self.get_battery()
+        if bat and bat["status"] == "Discharging":
+            return bat["power"], bat["voltage"], bat["current"]
+        return 0, 0, 0
+
+    def get_battery_consumption(self):
+        """Extra power going *into* the battery while charging."""
+        bat = self.get_battery()
+        if bat and bat["status"] == "Charging":
+            return bat["power"], bat["voltage"], bat["current"]
+        return 0, 0, 0
+
+    # --- estimate -------------------------------------------------------------
+
+    def estimate(self):
+        """Estimate (power, voltage, current) from CPU load or a predictor."""
+        v = (self.benchmarks["avg"].get("voltage")
+             or self.benchmarks["idle"].get("voltage") or 5)
+        if self.predictor is not None:
+            from powerguess.model import current_features
+            p = self.predictor.predict(current_features(self))
+            return p, v, (p / v if v else 0)
+
+        cpu = psutil.cpu_percent()
+        pmin = self.benchmarks["idle"]["power"]
+        pavg = self.benchmarks["avg"]["power"]
+        pmax = self.benchmarks["load"]["power"]
+        # Monotonic two-segment curve: idle..avg up to 60% load, avg..load above.
+        if cpu <= 60:
+            p = transform_range(cpu, (0, 60), (pmin, pavg))
         else:
-            m = "pc_generic.json"
+            p = transform_range(cpu, (60, 100), (pavg, pmax))
+        return p, v, (p / v if v else 0)
 
-        with open(f"{os.path.dirname(__file__)}/models/{m}") as f:
-            PowerStatMonitor.benchmarks = json.load(f)
+    def estimate_error(self, power: float) -> float:
+        """± watts band for an estimate, from the idle..load spread."""
+        spread = self.benchmarks["load"]["power"] - self.benchmarks["idle"]["power"]
+        return round(max(spread * 0.2, power * 0.15), 2)
 
-        PowerStatMonitor.current_value = cls.guesstimate()
+    # --- one reading, best source --------------------------------------------
 
-    @classmethod
-    def add_callback(cls, cb):
-        PowerStatMonitor.callbacks.append(cb)
+    def measure(self) -> Reading:
+        # 1. INA219 — exact, instant.
+        if self.ina is not None:
+            try:
+                v, i, p = self.ina.read()
+                if p:
+                    return Reading(p, v, i, "ina219")
+            except Exception as exc:  # noqa: BLE001 - hardware optional
+                print(f"INA219 read failed: {exc}")
 
-    @property
-    def battery(self):
+        # 2. Battery discharge — measured device input.
         if self.has_battery:
-            return self.get_battery()
-        return {}
+            p, v, i = self.get_battery_output()
+            if p:
+                return Reading(p, v, i, "battery")
 
-    @classmethod
-    def get_battery_consumption(cls):
-        # energy being consumed in addition to energy from laptop
-        bat = cls.get_battery()
-        if bat:
-            if bat["status"] == "Charging":
-                p = bat["power"]
-                v = bat["voltage"]
-                i = bat["current"]
-                return p, v, i
-        return 0, 0, 0
+        # 3. powerstat / RAPL — measured (x86, privileged).
+        if self.use_powerstat and not self.prefer_battery:
+            p = self._powerstat_once()
+            if p:
+                v = self.benchmarks["avg"].get("voltage") or 0
+                pb, _, _ = self.get_battery_consumption()
+                p += pb
+                return Reading(p, v, (p / v if v else 0), "powerstat")
 
-    @classmethod
-    def get_battery_output(cls):
-        # energy being provided to laptop
-        bat = cls.get_battery()
-        if bat:
-            if bat["status"] == "Discharging":
-                p = bat["power"]
-                v = bat["voltage"]
-                i = bat["current"]
-                return p, v, i
-        return 0, 0, 0
-
-    def run(self) -> None:
-        PowerStatMonitor.running = True
-        while PowerStatMonitor.running:
-            for reading in self.measure_powerstat(self.smooth):
-                if not reading[0]:
-                    continue  # 0 power consumption is impossible
-                PowerStatMonitor.current_value = reading
-                for cb in self.callbacks:
-                    try:
-                        cb(reading, self.model)
-                    except Exception as e:
-                        print(f"callback {cb} failed: {e}")
-                        continue
-            threading.Event().wait(self.time_between_measures)
-
-    def stop(self):
-        PowerStatMonitor.running = False
+        # 4. Estimate.
+        p, v, i = self.estimate()
+        pb, _, _ = self.get_battery_consumption()
+        p += pb
+        return Reading(p, v, (p / v if v else i), "estimate", self.estimate_error(p))
 
     @staticmethod
     def _window(iterable, n=2):
-        # window('123', 2) --> '12' '23'
         args = [islice(iterable, i, None) for i in range(n)]
         return zip(*args)
 
-    @classmethod
-    def get_battery(cls):
-        bat = list(get_battery_info())
-        if bat:  # estimate from battery readings
-            bat = bat[0]
-        return bat or None
+    def _powerstat_once(self) -> Optional[float]:
+        """Read a single wattage from powerstat, smoothed if requested."""
+        try:
+            child = pexpect.spawn("sudo powerstat -R 1", timeout=10)
+            child.expect("Watts\r\n")
+            watts = None
+            for _ in range(5):
+                line = [c for c in child.readline().decode("utf-8").strip().split(" ")
+                        if c.strip()]
+                if len(line) != 13 or line[0] == "--------":
+                    break
+                try:
+                    watts = float(line[-1])
+                except ValueError:
+                    break
+                self.readings.append(watts)
+                if self.smooth:
+                    avg = [mean(w) for w in self._window(self.readings, 3)]
+                    if avg:
+                        watts = avg[-1]
+            child.terminate(True)
+            self.readings = self.readings[-10:]
+            return watts
+        except Exception as exc:  # noqa: BLE001 - powerstat optional
+            print(f"powerstat read failed: {exc}")
+            return None
 
-    @classmethod
-    def guesstimate(cls):
+    # --- energy + run loop ----------------------------------------------------
 
-        # assume battery output == total laptop input
-        p, v, i = cls.get_battery_output()
-        if p:
-            return p, v, i
+    def _integrate_energy(self, reading: Reading, now: float) -> None:
+        if self._last_ts is not None:
+            self.energy_wh += reading.power * ((now - self._last_ts) / 3600)
+        self._last_ts = now
 
-        # estimate consumption based on cpu usage
-        cpu = psutil.cpu_percent()
+    def run(self) -> None:
+        self.running = True
+        while self.running:
+            reading = self.measure()
+            if not reading.power and reading.measured:
+                # a measured 0 W is meaningless; skip
+                threading.Event().wait(self.time_between_measures)
+                continue
+            self._integrate_energy(reading, time.time())
+            if self.auto is not None:
+                self.auto.update(reading)
+                if self.calibration is None:
+                    cal = self.auto.calibration()
+                    if cal:
+                        self.benchmarks = cal.benchmarks()
+            self.current = reading
+            for cb in self.callbacks:
+                try:
+                    cb(reading)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"callback {cb} failed: {exc}")
+            threading.Event().wait(self.time_between_measures)
 
-        pmax = cls.benchmarks["load"]["power"]
-        pmin = cls.benchmarks["idle"]["power"]
-        pavg = cls.benchmarks["avg"]["power"]
-        imax = cls.benchmarks["load"].get("current") or 0
-        iavg = cls.benchmarks["avg"].get("current") or imax * 0.6
-        imin = cls.benchmarks["idle"].get("current") or imax * 0.3
-        i, v, p = 0, 0, 0
-
-        if cpu < 60:
-            p = transform_range(cpu, (0, 100), (pmin, pavg))
-            if imin and iavg:
-                i = transform_range(cpu, (0, 100), (imin, iavg))
-            else:
-                v = cls.benchmarks["avg"].get("voltage") or \
-                    cls.benchmarks["load"].get("voltage") or \
-                    cls.benchmarks["idle"].get("voltage") or 0
-        else:
-            p = transform_range(cpu, (0, 100), (pmin, pmax))
-            if imin and imax:
-                i = transform_range(cpu, (0, 100), (imin, imax))
-            else:
-                v = cls.benchmarks["load"].get("voltage") or \
-                    cls.benchmarks["avg"].get("voltage") or \
-                    cls.benchmarks["idle"].get("voltage") or 0
-
-        if i and not v:
-            v = p / i  # V
-        if v and not i:
-            i = p / v  # A
-
-        return p, v, i
-
-    def measure_powerstat(self, smooth=False):
-        if self.prefer_battery and self.has_battery:
-            # assume battery output == total laptop input
-            p, v, i = self.get_battery_output()
-            if p:
-                yield p, v, i
-                return
-
-        # consumption from cpu
-        p, v, i = self.guesstimate()
-
-        # consumption from charging
-        pb, vb, ib = self.get_battery_consumption()
-
-        # consumption from powerstat
-        # ALL ALL=NOPASSWD: /usr/bin/powerstat
-        if not self.disable_powerstat and find_executable("powerstat"):
-            try:
-                child = pexpect.spawn('sudo powerstat -R 1')
-                child.expect('  Time    User  Nice   Sys  Idle    IO  Run Ctxt/s  IRQ/s Fork Exec Exit  Watts\r\n')
-                while True:
-                    l = [_ for _ in child.readline(1).decode("utf-8").strip().split(" ") if _.strip()]
-                    if len(l) != 13 or l[0] == '--------':
-                        break
-                    try:
-                        p = float(l[-1])
-                    except:
-                        break
-                    self.readings.append(p)
-                    if smooth:
-                        avg = [mean(w) for w in self._window(self.readings, 3)]
-                        if avg:
-                            p = avg[-1]
-                    p += pb
-                    i = p / v
-                    yield p, v, i
-                    if len(self.readings) > 10:
-                        self.readings = self.readings[-10:]
-                child.terminate(True)
-            except Exception as e:
-                print(e)
-        else:
-            yield p + pb, v, i + ib
+    def stop(self) -> None:
+        self.running = False
 
 
 if __name__ == "__main__":
-    # On x86, allow passwordless powerstat/dmidecode for live readings:
-    #   ALL ALL=NOPASSWD: /usr/bin/powerstat
-    #   ALL ALL=NOPASSWD: /usr/bin/dmidecode
-
-    def c(reading, model):
-        p, v, i = reading
-        print(f"new {model} reading:", p, "W - ", i, "A - ", v, "V")
+    def show(reading: Reading):
+        tag = reading.source if reading.measured else f"estimate ±{reading.error_margin}W"
+        print(f"{reading.power:6.2f} W  {reading.current:5.2f} A  "
+              f"{reading.voltage:5.2f} V  [{tag}]")
 
     monitor = PowerStatMonitor()
-    monitor.add_callback(c)
+    monitor.add_callback(show)
     monitor.start()
-
     try:
         while True:
             threading.Event().wait(1)

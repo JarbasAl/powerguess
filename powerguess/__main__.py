@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import signal
 import sys
 import time
-from typing import Any
+from typing import Any, Optional
 
+from .calibration import AutoCalibrator, Calibration
 from .config import Config
 from .guess import PowerStatMonitor
 from .mqtt_client import MQTTClient
-from .utils import get_battery_info
+from .reading import Reading
 from .version import __version__
 
 LOG = logging.getLogger("powerguess")
@@ -24,25 +26,70 @@ def setup_logging() -> None:
     )
 
 
+def _build_ina219():
+    if not Config.USE_INA219:
+        return None
+    try:
+        from .ina219 import INA219
+        return INA219(bus=Config.INA219_BUS, address=Config.INA219_ADDRESS,
+                      shunt_ohms=Config.INA219_SHUNT_OHMS)
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("INA219 unavailable (%s); falling back to other sources", exc)
+        return None
+
+
+def _build_predictor():
+    if not Config.MODEL_FILE:
+        return None
+    try:
+        from .model import LinearPredictor
+        return LinearPredictor.load(Config.MODEL_FILE)
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("model %s failed to load (%s); using the curve estimate",
+                    Config.MODEL_FILE, exc)
+        return None
+
+
 def main() -> None:
     setup_logging()
     LOG.info("powerguess %s starting", __version__)
 
-    monitor = PowerStatMonitor(smooth=Config.SMOOTH,
-                               time_between_measures=Config.MEASURE_INTERVAL)
-    monitor.prefer_battery = Config.PREFER_BATTERY
+    calibration: Optional[Calibration] = (
+        Calibration.from_env() or Calibration.load(Config.CALIBRATION_FILE))
+    auto = AutoCalibrator(Config.CALIBRATION_FILE) if Config.AUTO_CALIBRATE else None
+
+    monitor = PowerStatMonitor(
+        smooth=Config.SMOOTH,
+        time_between_measures=Config.MEASURE_INTERVAL,
+        calibration=calibration,
+        auto_calibrator=auto,
+        ina219=_build_ina219(),
+        predictor=_build_predictor(),
+        prefer_battery=Config.PREFER_BATTERY,
+        use_powerstat=Config.USE_POWERSTAT,
+    )
 
     mqtt_client = MQTTClient(has_battery=monitor.has_battery)
     mqtt_client.connect()
-    mqtt_client.publish_model(PowerStatMonitor.model)
+    mqtt_client.publish_model(monitor.model)
 
-    def on_reading(reading, model):
-        power, voltage, current = reading
-        if mqtt_client.publish_reading(power, voltage, current):
-            LOG.debug("published %.2f W / %.3f A / %.2f V", power, current, voltage)
+    dataset_fh = open(Config.DATASET_FILE, "a") if Config.DATASET_FILE else None
+
+    def on_reading(reading: Reading) -> None:
+        if mqtt_client.publish_reading(reading, energy_wh=monitor.energy_wh):
+            LOG.debug("%.2f W [%s] energy=%.4f kWh", reading.power, reading.source,
+                      monitor.energy_wh / 1000)
             if monitor.has_battery:
-                battery = PowerStatMonitor.get_battery()
-                mqtt_client.publish_battery(battery)
+                mqtt_client.publish_battery(monitor.get_battery())
+        if dataset_fh and reading.measured:
+            from .model import current_features, device_arch
+            dataset_fh.write(json.dumps({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "arch": device_arch(), "model": monitor.model or "unknown",
+                **current_features(monitor), "source": reading.source,
+                "watts": round(reading.power, 3),
+            }) + "\n")
+            dataset_fh.flush()
 
     monitor.add_callback(on_reading)
 
@@ -50,14 +97,16 @@ def main() -> None:
         LOG.info("Received signal %s, shutting down", signum)
         monitor.stop()
         mqtt_client.disconnect()
+        if dataset_fh:
+            dataset_fh.close()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
     monitor.start()
-    LOG.info("powerguess running — model %r, battery=%s",
-             PowerStatMonitor.model or "generic", monitor.has_battery)
+    LOG.info("powerguess running — model %r, battery=%s, ina219=%s",
+             monitor.model or "generic", monitor.has_battery, monitor.ina is not None)
 
     try:
         while True:

@@ -77,12 +77,17 @@ def get_model():
 
 
 def get_product_name():
+    # `sudo -n` never prompts: it fails immediately when passwordless dmidecode
+    # isn't configured, instead of blocking on a TTY password prompt at startup.
+    #   ALL ALL=NOPASSWD: /usr/bin/dmidecode
     try:
-        # ALL ALL=NOPASSWD: /usr/bin/dmidecode
-        p = subprocess.check_output("sudo dmidecode | grep -A3 '^System Information'", shell=True).decode("utf-8")
-        return p.split("Product Name: ")[-1].split("\n")[0]
-    except:
-        return ""
+        out = subprocess.run(["sudo", "-n", "dmidecode", "-s", "system-product-name"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0:
+            return out.stdout.strip().split("\n")[0]
+    except Exception:
+        pass
+    return ""
 
 
 def get_energy_delta_per_second(unit="mWh"):

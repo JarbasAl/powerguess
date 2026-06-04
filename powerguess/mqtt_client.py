@@ -35,6 +35,7 @@ class MQTTClient:
         self._device_name = Config.DEVICE_NAME
         self._device_id = Config.DEVICE_ID
         self._last_publish = 0.0
+        self._last_power = None
 
     # --- connection -----------------------------------------------------------
 
@@ -80,22 +81,24 @@ class MQTTClient:
 
     # --- state publishing -----------------------------------------------------
 
-    def publish_reading(self, power: float, voltage: float, current: float,
+    def publish_reading(self, reading, energy_wh: float = 0.0,
                         force: bool = False) -> bool:
-        """Publish a power reading, throttled to ``PUBLISH_INTERVAL``.
+        """Publish a :class:`Reading`. Throttled to ``PUBLISH_INTERVAL`` but sent
+        early when power moves by more than ``PUBLISH_DELTA`` watts.
 
         Returns ``True`` if the reading was published.
         """
         now = time.time()
-        if not force and now - self._last_publish < Config.PUBLISH_INTERVAL:
+        moved = (self._last_power is None or Config.PUBLISH_DELTA <= 0
+                 or abs(reading.power - self._last_power) >= Config.PUBLISH_DELTA)
+        if not force and not moved and now - self._last_publish < Config.PUBLISH_INTERVAL:
             return False
         self._last_publish = now
-        self._publish(f"{self._prefix}/state", json.dumps({
-            "power": round(power, 3),
-            "voltage": round(voltage, 3),
-            "current": round(current, 3),
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        }))
+        self._last_power = reading.power
+        payload = reading.as_dict()
+        payload["energy"] = round(energy_wh / 1000.0, 4)  # kWh
+        payload["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        self._publish(f"{self._prefix}/state", json.dumps(payload))
         return True
 
     def publish_battery(self, battery: Optional[dict]) -> None:
@@ -143,6 +146,15 @@ class MQTTClient:
                      unit="A", device_class="current", state_class="measurement")
         self._sensor("Voltage", "voltage", state, "{{ value_json.voltage }}", device,
                      unit="V", device_class="voltage", state_class="measurement")
+        self._sensor("Energy", "energy", state, "{{ value_json.energy }}", device,
+                     unit="kWh", device_class="energy",
+                     state_class="total_increasing", icon="mdi:lightning-bolt")
+        # Provenance: whether the latest reading is measured or estimated.
+        self._sensor("Source", "source", state, "{{ value_json.source }}", device,
+                     icon="mdi:check-decagram")
+        self._sensor("Error Margin", "error_margin", state,
+                     "{{ value_json.error_margin }}", device, unit="W",
+                     icon="mdi:plus-minus")
         self._sensor("Model", "model", f"{self._prefix}/model",
                      "{{ value_json.model }}", device, icon="mdi:cpu-64-bit")
 
