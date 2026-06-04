@@ -5,7 +5,7 @@ No I/O bridge — it computes watts with provenance and nothing else. The MQTT /
 Home Assistant bridge and system telemetry (CPU/GPU/Pi temperature, throttling, …)
 live in the companion **linux2mqtt** project, which depends on this.
 
-**Org:** JarbasAl / **Branch:** dev (work) / master (stable)
+**Org:** TigreGotico / **Branch:** dev (work) / master (stable)
 
 ## Layout
 

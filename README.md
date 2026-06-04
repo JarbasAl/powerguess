@@ -3,7 +3,7 @@
 Estimate — or measure — the power draw of a Linux device, in pure Python. A small
 library with no I/O bridge: it computes watts and reports where each number came
 from. The Home Assistant / MQTT bridge and system telemetry live in the companion
-**[linux2mqtt](https://github.com/JarbasAl/linux2mqtt)** project, which builds on
+**[linux2mqtt](https://github.com/TigreGotico/linux2mqtt)** project, which builds on
 this.
 
 ## Install

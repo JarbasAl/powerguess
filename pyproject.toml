@@ -32,7 +32,7 @@ ina219 = ["smbus2"]
 test = ["pytest>=7", "pytest-cov"]
 
 [project.urls]
-Homepage = "https://github.com/JarbasAl/powerguess"
+Homepage = "https://github.com/TigreGotico/powerguess"
 
 [tool.setuptools.dynamic]
 version = {attr = "powerguess.version.__version__"}
