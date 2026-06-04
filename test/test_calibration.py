@@ -37,7 +37,28 @@ def test_from_env(monkeypatch):
 def test_from_env_absent(monkeypatch):
     monkeypatch.delenv("CALIBRATION_IDLE_W", raising=False)
     monkeypatch.delenv("CALIBRATION_LOAD_W", raising=False)
+    monkeypatch.delenv("CALIBRATION_PSU_W", raising=False)
     assert Calibration.from_env() is None
+
+
+def test_from_psu_bounds():
+    cal = Calibration.from_psu(idle_power=2.7, psu_watts=15.0, voltage=5.0)
+    assert cal.idle_power == 2.7
+    assert cal.load_power == 15.0  # PSU rating is the ceiling
+    assert cal.source == "psu-bound"
+
+
+def test_from_psu_never_below_idle():
+    cal = Calibration.from_psu(idle_power=10.0, psu_watts=5.0)
+    assert cal.load_power == 10.0  # clamped to idle floor
+
+
+def test_from_env_psu_fallback(monkeypatch):
+    monkeypatch.setenv("CALIBRATION_IDLE_W", "2.7")
+    monkeypatch.delenv("CALIBRATION_LOAD_W", raising=False)
+    monkeypatch.setenv("CALIBRATION_PSU_W", "15")
+    cal = Calibration.from_env()
+    assert cal.source == "psu-bound" and cal.load_power == 15.0
 
 
 def test_auto_calibrator_learns_from_measured():

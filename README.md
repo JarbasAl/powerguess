@@ -63,10 +63,20 @@ monitor.add_callback(on_reading)
 monitor.start()
 ```
 
+## How it works
+
+Power lives between two bounds: an **idle floor** (the device never draws less)
+and the **PSU ceiling** (it can't draw more). Those two numbers already bracket
+its energy use; the estimate just interpolates a point between them from CPU load.
+See **[docs/theory.md](docs/theory.md)** — it's the model the whole tool is built
+on.
+
 ## Better accuracy & data
 
-- **[Calibration](docs/calibration.md)** — pin the estimate to your device
-  (manual, auto-learned, or an INA219 measured path).
+- **[Calibration](docs/calibration.md)** — pin the bounds to your device. The
+  `powerguess-calibrate` wizard measures idle and peak with an MQTT smart plug
+  and writes the calibration for you; or supply them by hand, learn them
+  automatically from a measured source, or read an INA219.
 - **[Dataset](docs/dataset.md)** — `dataset.py` collects `features → measured
   watts` from metered devices to train a power-prediction model.
 

@@ -2,8 +2,23 @@
 
 The generic per-model profiles are coarse — a NUC and a gaming PC both fall under
 `pc_generic` yet draw wildly different power. Calibration pins the estimate to
-*your* device with two numbers: idle and peak watts. Anything you provide beats
-the generic curve.
+*your* device with two numbers: idle (the floor) and peak (the ceiling) watts.
+Anything you provide beats the generic curve. See [theory](theory.md) for why
+those two bounds are all the estimate needs.
+
+## The fastest path: the wizard
+
+`powerguess-calibrate` measures both bounds for you using an MQTT smart plug as
+the meter — it reads the plug while prompting you to idle the device and then load
+it, then writes `calibration.json`:
+
+```bash
+powerguess-calibrate
+```
+
+It asks for the plug's MQTT topic, the supply voltage, and (optionally) the PSU
+rating for a sanity check. If you can't run a load test, it falls back to bounding
+by the PSU rating.
 
 ## Provenance first
 
@@ -44,6 +59,19 @@ or persist a `calibration.json` and point `CALIBRATION_FILE` at it:
 ```json
 {"idle_power": 2.7, "load_power": 6.4, "voltage": 5.0, "source": "manual"}
 ```
+
+### Idle + PSU rating (no load test)
+
+If you know the idle draw and the PSU rating but can't run a load test, that's
+enough for a valid (if loose) envelope — idle is the floor, the PSU rating the
+ceiling (see [theory](theory.md)):
+
+```bash
+CALIBRATION_IDLE_W=2.7 CALIBRATION_PSU_W=15 python -m powerguess
+```
+
+The estimate is conservative and its error band wide until you measure a real
+peak.
 
 ## Auto-calibration
 

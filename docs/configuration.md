@@ -18,7 +18,8 @@ All settings are environment variables, read once at startup.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CALIBRATION_FILE` | _(none)_ | JSON calibration to load, and where auto-calibration is saved |
-| `CALIBRATION_IDLE_W` / `CALIBRATION_LOAD_W` | _(none)_ | manual idle/peak watts |
+| `CALIBRATION_IDLE_W` / `CALIBRATION_LOAD_W` | _(none)_ | manual idle/peak watts (the bounds) |
+| `CALIBRATION_PSU_W` | _(none)_ | with `CALIBRATION_IDLE_W` but no `LOAD_W`, use the PSU rating as a loose upper bound (see [theory](theory.md)) |
 | `CALIBRATION_VOLTAGE` | `5.0` | supply voltage for manual calibration |
 | `AUTO_CALIBRATE` | `true` | learn idle/peak from measured readings |
 | `USE_INA219` | `false` | read an INA219 I²C power monitor (needs `[ina219]`) |

@@ -63,13 +63,29 @@ class Calibration:
             return cls.from_dict(json.load(f))
 
     @classmethod
+    def from_psu(cls, idle_power: float, psu_watts: float,
+                 voltage: float = 5.0) -> "Calibration":
+        """Bound the estimate by measured idle (floor) and PSU rating (ceiling).
+
+        The PSU rating is a hard but loose upper bound — real peak draw is
+        usually well below it — so the estimate is conservative and its error
+        band wide. A measured peak (the load test) gives a tighter ceiling.
+        """
+        return cls(idle_power=idle_power, load_power=max(psu_watts, idle_power),
+                   voltage=voltage, source="psu-bound")
+
+    @classmethod
     def from_env(cls) -> Optional["Calibration"]:
         idle = os.getenv("CALIBRATION_IDLE_W")
         load = os.getenv("CALIBRATION_LOAD_W")
+        psu = os.getenv("CALIBRATION_PSU_W")
+        voltage = float(os.getenv("CALIBRATION_VOLTAGE", "5.0"))
         if idle and load:
             return cls(idle_power=float(idle), load_power=float(load),
-                       voltage=float(os.getenv("CALIBRATION_VOLTAGE", "5.0")),
-                       source="manual")
+                       voltage=voltage, source="manual")
+        # Fall back to bounding by the PSU rating when no measured peak is given.
+        if idle and psu:
+            return cls.from_psu(float(idle), float(psu), voltage)
         return None
 
 

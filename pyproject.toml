@@ -34,6 +34,7 @@ test = ["pytest>=7", "pytest-cov"]
 
 [project.scripts]
 powerguess = "powerguess.__main__:main"
+powerguess-calibrate = "powerguess.wizard:main"
 
 [project.urls]
 Homepage = "https://github.com/JarbasAl/powerguess"
