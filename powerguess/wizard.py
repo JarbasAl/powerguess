@@ -142,13 +142,13 @@ class MQTTPowerMeter:
     def __init__(self, host: str, port: int, topic: str, key: Optional[str] = None,
                  user: Optional[str] = None, password: Optional[str] = None,
                  client=None):
-        import paho.mqtt.client as mqtt
+        from ._mqtt import new_client
         self.topic = topic
         self.key = key
         self._latest: Optional[float] = None
         self._buf: deque = deque(maxlen=600)
         self._host, self._port = host, port
-        self.client = client or mqtt.Client(client_id="powerguess-calibrate")
+        self.client = client or new_client("powerguess-calibrate")
         if client is None and user and password:
             self.client.username_pw_set(user, password)
         self.client.on_message = self._on_message

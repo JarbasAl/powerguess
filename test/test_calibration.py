@@ -61,18 +61,39 @@ def test_from_env_psu_fallback(monkeypatch):
     assert cal.source == "psu-bound" and cal.load_power == 15.0
 
 
-def test_auto_calibrator_learns_from_measured():
-    ac = AutoCalibrator()
-    assert ac.calibration() is None
-    ac.update(Reading(2.5, 5, 0.5, "battery"))
-    ac.update(Reading(9.0, 5, 1.8, "battery"))
-    ac.update(Reading(4.0, 5, 0.8, "battery"))
+def test_auto_calibrator_needs_min_samples():
+    ac = AutoCalibrator(min_samples=10)
+    for _ in range(3):
+        ac.update(Reading(5.0, 5, 1, "battery"))
+    assert ac.calibration() is None  # too few samples
+
+
+def test_auto_calibrator_learns_percentiles():
+    ac = AutoCalibrator(min_samples=10)
+    # A spread of measured readings; idle≈5th pct, peak≈95th pct.
+    for p in [2.5, 2.6, 2.7, 3, 4, 5, 6, 7, 8, 8.8, 9.0]:
+        ac.update(Reading(p, 5, p / 5, "battery"))
     cal = ac.calibration()
-    assert cal.idle_power == 2.5 and cal.load_power == 9.0 and cal.source == "auto"
+    assert cal.source == "auto"
+    assert 2.4 <= cal.idle_power <= 3.0
+    assert 8.5 <= cal.load_power <= 9.0
+
+
+def test_auto_calibrator_robust_to_outlier():
+    ac = AutoCalibrator(min_samples=10)
+    # A realistic spread of measured power...
+    for p in [3, 3.2, 3.5, 4, 5, 6, 7, 7.5, 7.8, 8] * 3:
+        ac.update(Reading(p, 5, p / 5, "battery"))
+    # ...plus lone glitches the bounds must ignore.
+    ac.update(Reading(0.01, 5, 0, "battery"))
+    ac.update(Reading(500.0, 5, 100, "battery"))
+    cal = ac.calibration()
+    # Bounds track the bulk, not the glitches (abs min/max would catch 0.01/500).
+    assert cal.idle_power >= 2.0 and cal.load_power <= 9.0
 
 
 def test_auto_calibrator_ignores_estimates():
-    ac = AutoCalibrator()
+    ac = AutoCalibrator(min_samples=2)
     ac.update(Reading(2.0, 5, 0.4, "estimate", error_margin=1))
     ac.update(Reading(20.0, 5, 4, "estimate", error_margin=5))
     assert ac.calibration() is None  # estimates never move the bounds
@@ -80,9 +101,9 @@ def test_auto_calibrator_ignores_estimates():
 
 def test_auto_calibrator_persists(tmp_path):
     path = str(tmp_path / "cal.json")
-    ac = AutoCalibrator(path, save_every=1)
-    ac.update(Reading(3.0, 5, 0.6, "ina219"))
-    ac.update(Reading(11.0, 5, 2.2, "ina219"))
+    ac = AutoCalibrator(path, save_every=1, min_samples=3)
+    for p in [3.0, 6.0, 11.0, 11.0]:
+        ac.update(Reading(p, 5, p / 5, "ina219"))
     reloaded = Calibration.load(path)
     assert reloaded is not None and reloaded.source == "auto"
-    assert reloaded.idle_power == 3.0 and reloaded.load_power == 11.0
+    assert reloaded.load_power > reloaded.idle_power

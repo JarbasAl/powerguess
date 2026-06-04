@@ -52,6 +52,18 @@ All settings are environment variables, read once at startup.
 | `DEVICE_NAME` | `PowerGuess` |
 | `DEVICE_ID` | `powerguess_01` |
 
+## Energy & cost
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ENERGY_FILE` | _(none)_ | persist the cumulative kWh counter here so it survives restarts |
+| `ENERGY_TARIFF` | `0` | price per kWh; when > 0 a cost sensor is published |
+| `CURRENCY` | `EUR` | unit for the cost sensor |
+
+RAPL (x86 package power via `/sys/class/powercap`) is detected and used
+automatically when readable — no configuration, no `sudo`, preferred over
+`powerstat`.
+
 ## Logging
 
 | Variable | Default |

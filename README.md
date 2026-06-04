@@ -13,7 +13,8 @@ Home Assistant dependency.
 | Source | When | Accuracy |
 | --- | --- | --- |
 | INA219 (I²C) | a power-monitor HAT is wired (`pip install powerguess[ina219]`) | measured |
-| `powerstat` (RAPL) | x86 with privileges | measured |
+| RAPL (`/sys/class/powercap`) | x86 with a readable energy counter (auto-detected) | measured |
+| `powerstat` | x86 fallback when RAPL isn't readable | measured |
 | Battery rails (`/sys`) | devices on battery | measured |
 | CPU-load estimate | everything else (headless Pi, SBC, mini PC) | estimated, with an error band |
 

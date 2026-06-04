@@ -59,8 +59,8 @@ class PowerStatMonitor(threading.Thread):
     def __init__(self, smooth: bool = False, time_between_measures: float = 5,
                  calibration: Optional[Calibration] = None,
                  auto_calibrator: Optional[AutoCalibrator] = None,
-                 ina219=None, predictor=None, prefer_battery: bool = False,
-                 use_powerstat: bool = True):
+                 ina219=None, rapl=None, predictor=None, prefer_battery: bool = False,
+                 use_powerstat: bool = True, energy_file: Optional[str] = None):
         super().__init__(daemon=True)
         self.smooth = smooth
         self.time_between_measures = time_between_measures
@@ -72,13 +72,16 @@ class PowerStatMonitor(threading.Thread):
         self.readings: List[float] = []
         self.current: Optional[Reading] = None
         self.running = False
-        self.energy_wh = 0.0
         self._last_ts: Optional[float] = None
         self.has_battery = bool(self.get_battery())
         self.ina = ina219
+        self.rapl = rapl
         self.predictor = predictor
         self.calibration = calibration
         self.auto = auto_calibrator
+        self.energy_file = energy_file
+        self.energy_wh = self._load_energy()
+        self._energy_dirty = 0
         self._load_profile()
 
     # --- benchmark profile / calibration -------------------------------------
@@ -157,13 +160,26 @@ class PowerStatMonitor(threading.Thread):
             except Exception as exc:  # noqa: BLE001 - hardware optional
                 print(f"INA219 read failed: {exc}")
 
-        # 2. Battery discharge — measured device input.
+        # 2. RAPL — measured x86 package power straight from sysfs (no sudo).
+        if self.rapl is not None and not self.prefer_battery:
+            try:
+                result = self.rapl.read()
+                if result and result[2]:
+                    v = self.benchmarks["avg"].get("voltage") or 0
+                    _, _, p = result
+                    pb, _, _ = self.get_battery_consumption()
+                    p += pb
+                    return Reading(p, v, (p / v if v else 0), "rapl")
+            except Exception as exc:  # noqa: BLE001
+                print(f"RAPL read failed: {exc}")
+
+        # 3. Battery discharge — measured device input.
         if self.has_battery:
             p, v, i = self.get_battery_output()
             if p:
                 return Reading(p, v, i, "battery")
 
-        # 3. powerstat / RAPL — measured (x86, privileged).
+        # 4. powerstat — measured (x86, privileged) fallback when RAPL is absent.
         if self.use_powerstat and not self.prefer_battery:
             p = self._powerstat_once()
             if p:
@@ -210,12 +226,38 @@ class PowerStatMonitor(threading.Thread):
             print(f"powerstat read failed: {exc}")
             return None
 
-    # --- energy + run loop ----------------------------------------------------
+    # --- energy (persisted) + bounds + run loop -------------------------------
+
+    def _load_energy(self) -> float:
+        if self.energy_file and os.path.isfile(self.energy_file):
+            try:
+                with open(self.energy_file) as f:
+                    return float(json.load(f).get("energy_wh", 0.0))
+            except (OSError, ValueError, KeyError):
+                pass
+        return 0.0
+
+    def _save_energy(self) -> None:
+        if not self.energy_file:
+            return
+        try:
+            with open(self.energy_file, "w") as f:
+                json.dump({"energy_wh": round(self.energy_wh, 4)}, f)
+        except OSError:
+            pass
 
     def _integrate_energy(self, reading: Reading, now: float) -> None:
         if self._last_ts is not None:
             self.energy_wh += reading.power * ((now - self._last_ts) / 3600)
         self._last_ts = now
+        self._energy_dirty += 1
+        if self._energy_dirty >= 12:  # persist roughly every minute at 5s cadence
+            self._save_energy()
+            self._energy_dirty = 0
+
+    def bounds(self) -> tuple:
+        """Current (floor, ceiling) watts — the envelope the estimate sits in."""
+        return self.benchmarks["idle"]["power"], self.benchmarks["load"]["power"]
 
     def run(self) -> None:
         self.running = True
@@ -242,6 +284,7 @@ class PowerStatMonitor(threading.Thread):
 
     def stop(self) -> None:
         self.running = False
+        self._save_energy()
 
 
 if __name__ == "__main__":

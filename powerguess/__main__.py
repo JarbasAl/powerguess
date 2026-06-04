@@ -38,6 +38,17 @@ def _build_ina219():
         return None
 
 
+def _build_rapl():
+    try:
+        from .rapl import RaplReader, available
+        if available():
+            LOG.info("RAPL available — using measured x86 package power")
+            return RaplReader()
+    except Exception as exc:  # noqa: BLE001
+        LOG.debug("RAPL unavailable: %s", exc)
+    return None
+
+
 def _build_predictor():
     if not Config.MODEL_FILE:
         return None
@@ -64,9 +75,11 @@ def main() -> None:
         calibration=calibration,
         auto_calibrator=auto,
         ina219=_build_ina219(),
+        rapl=_build_rapl(),
         predictor=_build_predictor(),
         prefer_battery=Config.PREFER_BATTERY,
         use_powerstat=Config.USE_POWERSTAT,
+        energy_file=Config.ENERGY_FILE or None,
     )
 
     mqtt_client = MQTTClient(has_battery=monitor.has_battery)
@@ -76,7 +89,8 @@ def main() -> None:
     dataset_fh = open(Config.DATASET_FILE, "a") if Config.DATASET_FILE else None
 
     def on_reading(reading: Reading) -> None:
-        if mqtt_client.publish_reading(reading, energy_wh=monitor.energy_wh):
+        if mqtt_client.publish_reading(reading, energy_wh=monitor.energy_wh,
+                                       bounds=monitor.bounds()):
             LOG.debug("%.2f W [%s] energy=%.4f kWh", reading.power, reading.source,
                       monitor.energy_wh / 1000)
             if monitor.has_battery:

@@ -15,14 +15,19 @@ A single device, **PowerGuess** (`powerguess_01` by default), exposing:
 | `sensor.powerguess_current` | A | current |
 | `sensor.powerguess_voltage` | V | voltage |
 | `sensor.powerguess_energy` | kWh | energy (total_increasing) |
-| `sensor.powerguess_source` | — | provenance: `ina219`/`powerstat`/`battery`/`estimate` |
+| `sensor.powerguess_source` | — | provenance: `ina219`/`rapl`/`powerstat`/`battery`/`estimate` |
 | `sensor.powerguess_error_margin` | W | ± band on an estimate |
+| `sensor.powerguess_power_floor` | W | idle floor (envelope lower bound) |
+| `sensor.powerguess_power_ceiling` | W | peak/PSU ceiling (envelope upper bound) |
+| `sensor.powerguess_cost` | currency | energy × tariff (only if `ENERGY_TARIFF` set) |
 | `sensor.powerguess_model` | — | — |
 
 The **source** and **error margin** sensors tell you whether the power figure is
-measured or estimated — use them in automations that need to trust the value. On
-devices with a battery it also adds `battery_level` (%), `battery_power` (W),
-`battery_status`, and the `charging` binary sensor.
+measured or estimated; **floor**/**ceiling** show the [envelope](theory.md) the
+estimate sits in. All entities are tied to an MQTT **availability** topic with a
+Last Will, so Home Assistant marks them *unavailable* if the service stops rather
+than showing a stale value. On devices with a battery it also adds `battery_level`
+(%), `battery_power` (W), `battery_status`, and the `charging` binary sensor.
 
 Run more than one instance by giving each a unique `DEVICE_ID` / `DEVICE_NAME`
 (and a distinct `MQTT_TOPIC_PREFIX`).
@@ -63,7 +68,8 @@ severity:
 PowerGuess integrates power over time itself and publishes
 `sensor.powerguess_energy` (kWh, `state_class: total_increasing`) — add it
 directly under **Settings → Energy → Individual devices**. No Riemann-sum helper
-needed. (The counter resets when the service restarts.)
+needed. Set `ENERGY_FILE` to persist the counter across restarts; set
+`ENERGY_TARIFF` to also get a `cost` sensor.
 
 ## MQTT topics
 

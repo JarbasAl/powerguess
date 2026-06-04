@@ -7,8 +7,7 @@ import logging
 import time
 from typing import Optional
 
-import paho.mqtt.client as mqtt
-
+from ._mqtt import new_client
 from .config import Config
 from .version import __version__
 
@@ -24,14 +23,22 @@ class MQTTClient:
     """
 
     def __init__(self, has_battery: bool = False, client=None) -> None:
-        self.client = client or mqtt.Client(client_id=Config.MQTT_CLIENT_ID)
-        if client is None and Config.MQTT_USER and Config.MQTT_PASSWORD:
-            self.client.username_pw_set(Config.MQTT_USER, Config.MQTT_PASSWORD)
+        self._prefix = Config.MQTT_TOPIC_PREFIX
+        self._availability = f"{self._prefix}/availability"
+        self.client = client or new_client(Config.MQTT_CLIENT_ID)
+        if client is None:
+            if Config.MQTT_USER and Config.MQTT_PASSWORD:
+                self.client.username_pw_set(Config.MQTT_USER, Config.MQTT_PASSWORD)
+            # Reconnect automatically if the broker drops, and tell HA we're gone.
+            try:
+                self.client.reconnect_delay_set(min_delay=1, max_delay=30)
+            except Exception:  # pragma: no cover - older paho
+                pass
+            self.client.will_set(self._availability, "offline", qos=1, retain=True)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self._connected = False
         self._has_battery = has_battery
-        self._prefix = Config.MQTT_TOPIC_PREFIX
         self._device_name = Config.DEVICE_NAME
         self._device_id = Config.DEVICE_ID
         self._last_publish = 0.0
@@ -39,17 +46,21 @@ class MQTTClient:
 
     # --- connection -----------------------------------------------------------
 
-    def _on_connect(self, client, userdata, flags, rc, *args):
-        if rc == 0:
+    def _on_connect(self, client, userdata, flags, reason_code, *args):
+        # reason_code is an int (paho 1.x) or ReasonCode (2.x); both == 0 on success.
+        if reason_code == 0:
             LOG.info("MQTT connected to %s:%s", Config.MQTT_HOST, Config.MQTT_PORT)
             self._connected = True
+            # Announce availability, then (re)publish discovery — important after a
+            # reconnect so HA flips the entities back to available.
+            self.client.publish(self._availability, "online", qos=1, retain=True)
             if Config.HA_ENABLED:
                 self.publish_discovery()
         else:
-            LOG.warning("MQTT connection failed, rc=%s", rc)
+            LOG.warning("MQTT connection failed, reason=%s", reason_code)
 
-    def _on_disconnect(self, client, userdata, rc, *args):
-        LOG.warning("MQTT disconnected, rc=%s", rc)
+    def _on_disconnect(self, client, userdata, *args):
+        LOG.warning("MQTT disconnected; will auto-reconnect")
         self._connected = False
 
     def connect(self) -> None:
@@ -74,6 +85,8 @@ class MQTTClient:
 
     def disconnect(self) -> None:
         try:
+            if self._connected:
+                self.client.publish(self._availability, "offline", qos=1, retain=True)
             self.client.loop_stop()
         except Exception:
             pass
@@ -82,10 +95,11 @@ class MQTTClient:
     # --- state publishing -----------------------------------------------------
 
     def publish_reading(self, reading, energy_wh: float = 0.0,
-                        force: bool = False) -> bool:
+                        bounds=None, force: bool = False) -> bool:
         """Publish a :class:`Reading`. Throttled to ``PUBLISH_INTERVAL`` but sent
         early when power moves by more than ``PUBLISH_DELTA`` watts.
 
+        :param bounds: optional ``(floor_w, ceiling_w)`` envelope to publish.
         Returns ``True`` if the reading was published.
         """
         now = time.time()
@@ -95,9 +109,15 @@ class MQTTClient:
             return False
         self._last_publish = now
         self._last_power = reading.power
+        energy_kwh = round(energy_wh / 1000.0, 4)
         payload = reading.as_dict()
-        payload["energy"] = round(energy_wh / 1000.0, 4)  # kWh
+        payload["energy"] = energy_kwh
         payload["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        if bounds:
+            payload["floor"] = round(bounds[0], 3)
+            payload["ceiling"] = round(bounds[1], 3)
+        if Config.ENERGY_TARIFF > 0:
+            payload["cost"] = round(energy_kwh * Config.ENERGY_TARIFF, 4)
         self._publish(f"{self._prefix}/state", json.dumps(payload))
         return True
 
@@ -155,6 +175,15 @@ class MQTTClient:
         self._sensor("Error Margin", "error_margin", state,
                      "{{ value_json.error_margin }}", device, unit="W",
                      icon="mdi:plus-minus")
+        # The envelope: idle floor and peak/PSU ceiling the estimate sits between.
+        self._sensor("Power Floor", "power_floor", state, "{{ value_json.floor }}",
+                     device, unit="W", device_class="power", icon="mdi:arrow-collapse-down")
+        self._sensor("Power Ceiling", "power_ceiling", state, "{{ value_json.ceiling }}",
+                     device, unit="W", device_class="power", icon="mdi:arrow-collapse-up")
+        if Config.ENERGY_TARIFF > 0:
+            self._sensor("Cost", "cost", state, "{{ value_json.cost }}", device,
+                         unit=Config.CURRENCY, device_class="monetary",
+                         state_class="total_increasing", icon="mdi:cash")
         self._sensor("Model", "model", f"{self._prefix}/model",
                      "{{ value_json.model }}", device, icon="mdi:cpu-64-bit")
 
@@ -184,6 +213,9 @@ class MQTTClient:
             "state_topic": state_topic,
             "value_template": value_template,
             "device": device,
+            "availability_topic": self._availability,
+            "payload_available": "online",
+            "payload_not_available": "offline",
         }
         if unit:
             payload["unit_of_measurement"] = unit
@@ -205,6 +237,9 @@ class MQTTClient:
             "state_topic": state_topic,
             "value_template": value_template,
             "device": device,
+            "availability_topic": self._availability,
+            "payload_available": "online",
+            "payload_not_available": "offline",
         }
         if device_class:
             payload["device_class"] = device_class

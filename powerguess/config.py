@@ -51,5 +51,10 @@ class Config:
     DEVICE_NAME: str = os.getenv("DEVICE_NAME", "PowerGuess")
     DEVICE_ID: str = os.getenv("DEVICE_ID", "powerguess_01")
 
+    # Energy persistence + cost
+    ENERGY_FILE: str = os.getenv("ENERGY_FILE", "")
+    ENERGY_TARIFF: float = float(os.getenv("ENERGY_TARIFF", "0"))  # per kWh; 0 disables cost
+    CURRENCY: str = os.getenv("CURRENCY", "EUR")
+
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()

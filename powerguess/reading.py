@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 # Sources, ordered most → least trustworthy.
-MEASURED_SOURCES = ("ina219", "powerstat", "battery")
+MEASURED_SOURCES = ("ina219", "rapl", "powerstat", "battery")
 ESTIMATED_SOURCE = "estimate"
 
 

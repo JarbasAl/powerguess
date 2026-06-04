@@ -11,18 +11,21 @@ paho-mqtt; the OVOS PHAL integration is an optional extra.
 | Path | Purpose |
 |------|---------|
 | `powerguess/reading.py` | `Reading` frozen dataclass — value + provenance (`source`, `error_margin`) |
-| `powerguess/guess.py` | `PowerStatMonitor` — source priority (ina219>powerstat>battery>estimate), energy, callbacks |
-| `powerguess/calibration.py` | `Calibration` + `AutoCalibrator` (manual/file/env + learned idle/peak) |
+| `powerguess/guess.py` | `PowerStatMonitor` — source priority (ina219>rapl>powerstat>battery>estimate), energy, bounds, callbacks |
+| `powerguess/calibration.py` | `Calibration` + `AutoCalibrator` (manual/file/env/PSU + percentile-learned idle/peak) |
 | `powerguess/ina219.py` | optional INA219 I²C reader (`ina219` extra) |
+| `powerguess/rapl.py` | x86 RAPL powercap reader (measured, no sudo) |
 | `powerguess/model.py` | `FEATURES`, `current_features`, `LinearPredictor` (pluggable estimate) |
+| `powerguess/_mqtt.py` | paho 1.x/2.x client factory |
 | `powerguess/utils.py` | `/sys` battery reads, model detection, `transform_range` |
 | `powerguess/models/*.json` | per-device idle/avg/load benchmark profiles |
 | `powerguess/config.py` | env-var config |
-| `powerguess/mqtt_client.py` | paho-mqtt client + HA auto-discovery (power/energy/source/…) |
+| `powerguess/mqtt_client.py` | paho client + HA auto-discovery (power/energy/source/envelope/cost) + LWT availability |
+| `powerguess/wizard.py` | `powerguess-calibrate` smart-plug calibration wizard |
 | `powerguess/__main__.py` | CLI entry point (`python -m powerguess` / `powerguess`) |
-| `dataset.py` | collect `features → measured watts` JSONL (root, per org convention) |
-| `docs/` | Home Assistant, configuration, calibration, dataset docs |
-| `test/` | offline pytest suite (battery `/sys` + INA219 SMBus mocked) |
+| `dataset.py` / `train.py` | collect `features → measured watts` JSONL, then least-squares fit a model JSON |
+| `docs/` | theory, Home Assistant, configuration, calibration, dataset docs |
+| `test/` | offline pytest suite (battery `/sys`, INA219 SMBus, RAPL sysfs, MQTT clients mocked) |
 
 ## Conventions
 

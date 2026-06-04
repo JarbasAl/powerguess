@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+from collections import deque
 from typing import Optional
 
 from .reading import Reading
@@ -92,43 +93,55 @@ class Calibration:
 class AutoCalibrator:
     """Learn idle/peak power from measured readings and persist it.
 
-    Tracks the lowest and highest *measured* power seen (a measured source is
-    ground truth) and, once both ends are known, yields an ``auto`` calibration
-    that future runs reuse — so the estimate sharpens itself on hardware that has
-    a meter for at least part of its life.
+    Keeps a rolling window of *measured* power (ground truth) and reads the idle
+    floor and peak ceiling off its 5th / 95th percentiles — robust to the odd
+    glitch or spike that absolute min/max would latch onto. Once enough samples
+    are in, it yields an ``auto`` calibration future runs reuse, so the estimate
+    sharpens itself on hardware that has a meter for at least part of its life.
     """
 
-    def __init__(self, path: Optional[str] = None, save_every: int = 20):
+    def __init__(self, path: Optional[str] = None, save_every: int = 20,
+                 window: int = 500, min_samples: int = 10,
+                 low_pct: float = 5.0, high_pct: float = 95.0):
         self.path = path
         self.save_every = save_every
-        self._idle: Optional[float] = None
-        self._load: Optional[float] = None
+        self.min_samples = min_samples
+        self.low_pct = low_pct
+        self.high_pct = high_pct
+        self._samples: deque = deque(maxlen=window)
         self._voltage: float = 5.0
         self._dirty = 0
         existing = Calibration.load(path) if path else None
         if existing and existing.source == "auto":
-            self._idle, self._load, self._voltage = (
-                existing.idle_power, existing.load_power, existing.voltage)
+            # Seed the window with the persisted bounds so we don't start cold.
+            self._samples.extend([existing.idle_power, existing.load_power])
+            self._voltage = existing.voltage
+
+    @staticmethod
+    def _percentile(values: list, pct: float) -> float:
+        s = sorted(values)
+        idx = min(len(s) - 1, max(0, int(round((pct / 100.0) * (len(s) - 1)))))
+        return s[idx]
 
     def update(self, reading: Reading) -> None:
         """Fold one reading in. Only measured readings move the bounds."""
         if not reading.measured or reading.power <= 0:
             return
-        p = reading.power
-        if self._idle is None or p < self._idle:
-            self._idle = p
-            self._dirty += 1
-        if self._load is None or p > self._load:
-            self._load = p
-            self._dirty += 1
+        self._samples.append(reading.power)
         if reading.voltage:
             self._voltage = reading.voltage
+        self._dirty += 1
         if self.path and self._dirty >= self.save_every and self.calibration():
             self.calibration().save(self.path)
             self._dirty = 0
 
     def calibration(self) -> Optional[Calibration]:
-        if self._idle is None or self._load is None or self._load <= self._idle:
+        if len(self._samples) < self.min_samples:
             return None
-        return Calibration(idle_power=self._idle, load_power=self._load,
+        vals = list(self._samples)
+        idle = round(self._percentile(vals, self.low_pct), 3)
+        load = round(self._percentile(vals, self.high_pct), 3)
+        if load <= idle:
+            return None
+        return Calibration(idle_power=idle, load_power=load,
                            voltage=self._voltage, source="auto")

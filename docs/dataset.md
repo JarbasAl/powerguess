@@ -39,16 +39,25 @@ differently from ARM SBCs). The features are defined once in
 `powerguess.model.FEATURES` and shared by the collector and the predictor, so a
 trained model drops straight in.
 
-A trained model ships as a small JSON of linear coefficients (no runtime ML
-dependency — prediction is a dot product):
+Fit one with the bundled trainer (ordinary least squares, pure Python — no ML
+dependency):
+
+```bash
+python train.py --data powerguess.jsonl --out model.json
+python train.py --data powerguess.jsonl --arch aarch64 --out pi.json   # per arch
+```
+
+It writes a small JSON of linear coefficients:
 
 ```json
-{"intercept": 1.8, "coefficients": {"cpu_percent": 0.045, "cpu_freq_mhz": 0.0007, "n_cores": 0.6}}
+{"intercept": 1.8, "coefficients": {"cpu_percent": 0.045, "n_cores": 0.6, ...}}
 ```
 
 Point the bridge at it with `MODEL_FILE=model.json`; readings then come from the
-model instead of the idle/load curve. Richer model families can be added behind
-the same `predict(features) -> watts` interface in `powerguess.model`.
+model instead of the idle/load curve. The features (`powerguess.model.FEATURES`)
+include CPU load, frequency, core count, load average, and temperature. Richer
+model families can be added behind the same `predict(features) -> watts`
+interface in `powerguess.model`.
 
 ## Publishing
 

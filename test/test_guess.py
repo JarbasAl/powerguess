@@ -75,3 +75,36 @@ def test_instance_state_isolated():
     a.add_callback(lambda r: None)
     assert a.callbacks is not b.callbacks  # no shared class-level state
     assert len(b.callbacks) == 0
+
+
+def test_energy_persists_across_restart(tmp_path):
+    import time
+    path = str(tmp_path / "energy.json")
+    m = PowerStatMonitor(use_powerstat=False, energy_file=path)
+    now = time.time()
+    m._integrate_energy(Reading(10, 5, 2, "estimate"), now)
+    m._integrate_energy(Reading(10, 5, 2, "estimate"), now + 3600)
+    m.stop()  # saves
+    m2 = PowerStatMonitor(use_powerstat=False, energy_file=path)
+    assert round(m2.energy_wh, 1) == 10.0  # restored
+
+
+def test_measure_prefers_rapl():
+    class FakeRapl:
+        def read(self):
+            return 0.0, 0.0, 7.5  # (v, i, watts)
+
+    m = PowerStatMonitor(use_powerstat=False, rapl=FakeRapl())
+    m.has_battery = False
+    r = m.measure()
+    assert r.source == "rapl" and r.measured is True
+    assert r.power >= 7.5
+
+
+def test_bounds_returns_envelope():
+    m = _monitor()
+    m.set_model("Raspberry Pi 4 Model B")
+    floor, ceiling = m.bounds()
+    assert floor == m.benchmarks["idle"]["power"]
+    assert ceiling == m.benchmarks["load"]["power"]
+    assert floor < ceiling

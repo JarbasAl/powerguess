@@ -1,6 +1,5 @@
 import os
 import subprocess
-import time
 
 
 def transform_range(value: float, r1: tuple, r2: tuple):
@@ -88,22 +87,3 @@ def get_product_name():
     except Exception:
         pass
     return ""
-
-
-def get_energy_delta_per_second(unit="mWh"):
-    bat = list(get_battery_info())[0]
-    t = 1
-    time.sleep(t)
-    bat2 = list(get_battery_info())[0]
-    delta = bat2["charge"] - bat["charge"]
-    current = delta * t
-    p = bat2["voltage"] * current
-    e = p * (t / 3600)
-    if unit == "mWh":
-        e = e * 1000
-    elif unit == "kWh":
-        e = e / 1000
-    else:
-        unit = "Wh"
-    unit += "/s"
-    return e, unit
