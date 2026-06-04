@@ -14,3 +14,9 @@ def test_transform_range_midpoint():
 
 def test_transform_range_identity():
     assert transform_range(5, (0, 10), (0, 10)) == pytest.approx(5)
+
+
+def test_get_model_env_override(monkeypatch):
+    from powerguess.utils import get_model
+    monkeypatch.setenv("POWERGUESS_MODEL", "Raspberry Pi 4 Model B")
+    assert get_model() == "Raspberry Pi 4 Model B"

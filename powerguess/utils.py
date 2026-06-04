@@ -63,6 +63,11 @@ def get_battery_info():
 
 
 def get_model():
+    # Explicit override — useful in containers, where /proc/device-tree and
+    # /sys aren't reliably visible, or for unusual boards.
+    env = os.getenv("POWERGUESS_MODEL")
+    if env:
+        return env
     p = ""
     if os.path.isfile("/proc/device-tree/model"):
         p = "/proc/device-tree/model"
