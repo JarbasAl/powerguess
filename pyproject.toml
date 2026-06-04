@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "powerguess"
+dynamic = ["version"]
+description = "Estimate the live power draw of a Linux device and publish it to MQTT / Home Assistant"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+authors = [{name = "JarbasAi", email = "jarbasai@mailfence.com"}]
+keywords = ["power", "energy", "mqtt", "home-assistant", "powerstat", "raspberry-pi",
+            "monitoring", "iot", "smart-home"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Home Automation",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "psutil",
+    "pexpect",
+    "paho-mqtt>=1.6",
+]
+
+[project.optional-dependencies]
+# OVOS PHAL sensor integration (powerguess.sensors / powerguess.device).
+phal = ["ovos-PHAL-sensors>=0.0.0a16", "ovos-plugin-manager", "ovos-config", "ovos-utils"]
+test = ["pytest>=7", "pytest-cov"]
+
+[project.scripts]
+powerguess = "powerguess.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/JarbasAl/powerguess"
+
+[tool.setuptools.dynamic]
+version = {attr = "powerguess.version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["powerguess*"]
+exclude = ["test*"]
+
+[tool.setuptools.package-data]
+"powerguess.models" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+addopts = "-q"
+
+[tool.coverage.run]
+# The PHAL integration needs the optional `phal` extra (OVOS) and is not
+# exercised by the offline suite; `__main__` is the long-running CLI loop.
+omit = [
+    "powerguess/sensors.py",
+    "powerguess/device.py",
+    "powerguess/__main__.py",
+]

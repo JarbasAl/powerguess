@@ -2,8 +2,8 @@ import json
 import os
 import platform
 import threading
-from distutils.spawn import find_executable
 from itertools import islice
+from shutil import which as find_executable
 from statistics import mean
 
 import pexpect
@@ -27,8 +27,9 @@ class PowerStatMonitor(threading.Thread):
         self.time_between_measures = time_between_measures
         self.readings = []
         self.has_battery = bool(self.get_battery())
-        if self.model:
-            self.set_model(self.model)
+        # Always load a benchmark profile; set_model() falls back to a generic
+        # one (laptop/sbc/pc) when the device model can't be identified.
+        self.set_model(self.model or "")
 
     @classmethod
     def set_model(cls, model):
@@ -36,11 +37,11 @@ class PowerStatMonitor(threading.Thread):
         if "Raspberry Pi 4" in cls.model:
             m = "pi4.json"
         elif "Raspberry Pi 3 Model B Plus" in cls.model:
-            m = "pi3b+.json"
+            m = "pi3bplus.json"
         elif "Raspberry Pi 3" in cls.model:
             m = "pi3b.json"
         elif "Raspberry Pi 2" in cls.model:
-            m = "pi2.json"
+            m = "pi2b.json"
         elif "Raspberry Pi Zero" in cls.model:
             m = "pi0.json"
         elif "U500-H" in model:
@@ -214,22 +215,20 @@ class PowerStatMonitor(threading.Thread):
 
 
 if __name__ == "__main__":
-    # in x86 add to sudoers
-    # ALL ALL=NOPASSWD: /usr/bin/powerstat
-    # ALL ALL=NOPASSWD: /usr/bin/dmidecode
+    # On x86, allow passwordless powerstat/dmidecode for live readings:
+    #   ALL ALL=NOPASSWD: /usr/bin/powerstat
+    #   ALL ALL=NOPASSWD: /usr/bin/dmidecode
 
     def c(reading, model):
         p, v, i = reading
         print(f"new {model} reading:", p, "W - ", i, "A - ", v, "V")
 
+    monitor = PowerStatMonitor()
+    monitor.add_callback(c)
+    monitor.start()
 
-    # do this at PHAL plugin init time
-    p = PowerStatMonitor()
-    p.add_callback(c)
-    p.start()
-
-    from ovos_utils import wait_for_exit_signal
-
-    wait_for_exit_signal()
-
-    p.stop()
+    try:
+        while True:
+            threading.Event().wait(1)
+    except KeyboardInterrupt:
+        monitor.stop()

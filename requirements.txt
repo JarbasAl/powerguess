@@ -1,1 +1,0 @@
-ovos-PHAL-sensors>=0.0.0a16

@@ -1,0 +1,200 @@
+"""MQTT client with Home Assistant MQTT auto-discovery for powerguess."""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from typing import Optional
+
+import paho.mqtt.client as mqtt
+
+from .config import Config
+from .version import __version__
+
+LOG = logging.getLogger(__name__)
+
+
+class MQTTClient:
+    """Publishes power readings to MQTT and registers Home Assistant discovery.
+
+    :param has_battery: include the battery sensor group in discovery.
+    :param client: inject a pre-built MQTT client (used by tests); a real
+        ``paho.mqtt`` client is created when omitted.
+    """
+
+    def __init__(self, has_battery: bool = False, client=None) -> None:
+        self.client = client or mqtt.Client(client_id=Config.MQTT_CLIENT_ID)
+        if client is None and Config.MQTT_USER and Config.MQTT_PASSWORD:
+            self.client.username_pw_set(Config.MQTT_USER, Config.MQTT_PASSWORD)
+        self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+        self._connected = False
+        self._has_battery = has_battery
+        self._prefix = Config.MQTT_TOPIC_PREFIX
+        self._device_name = Config.DEVICE_NAME
+        self._device_id = Config.DEVICE_ID
+        self._last_publish = 0.0
+
+    # --- connection -----------------------------------------------------------
+
+    def _on_connect(self, client, userdata, flags, rc, *args):
+        if rc == 0:
+            LOG.info("MQTT connected to %s:%s", Config.MQTT_HOST, Config.MQTT_PORT)
+            self._connected = True
+            if Config.HA_ENABLED:
+                self.publish_discovery()
+        else:
+            LOG.warning("MQTT connection failed, rc=%s", rc)
+
+    def _on_disconnect(self, client, userdata, rc, *args):
+        LOG.warning("MQTT disconnected, rc=%s", rc)
+        self._connected = False
+
+    def connect(self) -> None:
+        LOG.info("Connecting to MQTT broker %s:%s", Config.MQTT_HOST, Config.MQTT_PORT)
+        for attempt in range(1, Config.MQTT_RETRY_COUNT + 1):
+            try:
+                self.client.connect(Config.MQTT_HOST, Config.MQTT_PORT,
+                                    keepalive=Config.MQTT_KEEPALIVE)
+                self.client.loop_start()
+                deadline = time.time() + Config.MQTT_CONNECT_TIMEOUT
+                while time.time() < deadline:
+                    if self._connected:
+                        return
+                    time.sleep(0.1)
+                LOG.warning("MQTT connection timeout, retrying...")
+            except Exception as exc:
+                LOG.warning("MQTT connection attempt %s/%s failed: %s",
+                            attempt, Config.MQTT_RETRY_COUNT, exc)
+                time.sleep(min(2 ** attempt, Config.MQTT_RETRY_MAX_BACKOFF))
+        LOG.error("MQTT failed to connect after %s attempts, continuing anyway",
+                  Config.MQTT_RETRY_COUNT)
+
+    def disconnect(self) -> None:
+        try:
+            self.client.loop_stop()
+        except Exception:
+            pass
+        self.client.disconnect()
+
+    # --- state publishing -----------------------------------------------------
+
+    def publish_reading(self, power: float, voltage: float, current: float,
+                        force: bool = False) -> bool:
+        """Publish a power reading, throttled to ``PUBLISH_INTERVAL``.
+
+        Returns ``True`` if the reading was published.
+        """
+        now = time.time()
+        if not force and now - self._last_publish < Config.PUBLISH_INTERVAL:
+            return False
+        self._last_publish = now
+        self._publish(f"{self._prefix}/state", json.dumps({
+            "power": round(power, 3),
+            "voltage": round(voltage, 3),
+            "current": round(current, 3),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }))
+        return True
+
+    def publish_battery(self, battery: Optional[dict]) -> None:
+        if not battery:
+            return
+        charging = battery.get("status") == "Charging"
+        self._publish(f"{self._prefix}/battery", json.dumps({
+            "level": round(battery.get("capacity", 0), 1),
+            "status": battery.get("status", "unknown"),
+            "charging": charging,
+            "power": round(battery.get("power", 0), 3),
+            "voltage": round(battery.get("voltage", 0), 3),
+        }))
+
+    def publish_model(self, model: str) -> None:
+        self._publish(f"{self._prefix}/model", json.dumps({"model": model or "unknown"}))
+
+    def _publish(self, topic: str, payload: str) -> None:
+        if not self._connected:
+            LOG.debug("MQTT not connected, dropping message to %s", topic)
+            return
+        self.client.publish(topic, payload, qos=Config.MQTT_QOS,
+                            retain=Config.MQTT_RETAIN)
+
+    # --- Home Assistant discovery ---------------------------------------------
+
+    def _device(self) -> dict:
+        return {
+            "identifiers": [self._device_id],
+            "name": self._device_name,
+            "model": "PowerGuess",
+            "manufacturer": "JarbasAi",
+            "sw_version": __version__,
+        }
+
+    def publish_discovery(self) -> None:
+        """Publish Home Assistant MQTT discovery payloads."""
+        device = self._device()
+        state = f"{self._prefix}/state"
+
+        self._sensor("Power", "power", state, "{{ value_json.power }}", device,
+                     unit="W", device_class="power", state_class="measurement",
+                     icon="mdi:flash")
+        self._sensor("Current", "current", state, "{{ value_json.current }}", device,
+                     unit="A", device_class="current", state_class="measurement")
+        self._sensor("Voltage", "voltage", state, "{{ value_json.voltage }}", device,
+                     unit="V", device_class="voltage", state_class="measurement")
+        self._sensor("Model", "model", f"{self._prefix}/model",
+                     "{{ value_json.model }}", device, icon="mdi:cpu-64-bit")
+
+        if self._has_battery:
+            bat = f"{self._prefix}/battery"
+            self._sensor("Battery Level", "battery_level", bat,
+                         "{{ value_json.level }}", device, unit="%",
+                         device_class="battery", state_class="measurement")
+            self._sensor("Battery Power", "battery_power", bat,
+                         "{{ value_json.power }}", device, unit="W",
+                         device_class="power", state_class="measurement")
+            self._sensor("Battery Status", "battery_status", bat,
+                         "{{ value_json.status }}", device, icon="mdi:battery")
+            self._binary_sensor("Charging", "charging", bat,
+                                "{{ 'ON' if value_json.charging else 'OFF' }}",
+                                device, device_class="battery_charging")
+
+        LOG.info("Home Assistant discovery payloads published")
+
+    def _sensor(self, name: str, object_id: str, state_topic: str,
+                value_template: str, device: dict, unit: Optional[str] = None,
+                device_class: Optional[str] = None, state_class: Optional[str] = None,
+                icon: Optional[str] = None) -> None:
+        payload = {
+            "name": f"{self._device_name} {name}",
+            "unique_id": f"{self._device_id}_{object_id}",
+            "state_topic": state_topic,
+            "value_template": value_template,
+            "device": device,
+        }
+        if unit:
+            payload["unit_of_measurement"] = unit
+        if device_class:
+            payload["device_class"] = device_class
+        if state_class:
+            payload["state_class"] = state_class
+        if icon:
+            payload["icon"] = icon
+        topic = f"{Config.HA_DISCOVERY_PREFIX}/sensor/{self._device_id}/{object_id}/config"
+        self.client.publish(topic, json.dumps(payload), qos=1, retain=True)
+
+    def _binary_sensor(self, name: str, object_id: str, state_topic: str,
+                       value_template: str, device: dict,
+                       device_class: Optional[str] = None) -> None:
+        payload = {
+            "name": f"{self._device_name} {name}",
+            "unique_id": f"{self._device_id}_{object_id}",
+            "state_topic": state_topic,
+            "value_template": value_template,
+            "device": device,
+        }
+        if device_class:
+            payload["device_class"] = device_class
+        topic = f"{Config.HA_DISCOVERY_PREFIX}/binary_sensor/{self._device_id}/{object_id}/config"
+        self.client.publish(topic, json.dumps(payload), qos=1, retain=True)

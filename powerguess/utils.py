@@ -4,9 +4,9 @@ import time
 
 
 def transform_range(value: float, r1: tuple, r2: tuple):
-    """ scale N from range (x, y) to (X, Y) """
+    """Linearly map ``value`` from range ``r1`` (x, y) to range ``r2`` (X, Y)."""
     scale = (r2[1] - r2[0]) / (r1[1] - r1[0])
-    return (value - r1[0]) * scale
+    return r2[0] + (value - r1[0]) * scale
 
 
 def get_battery_info():
