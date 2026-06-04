@@ -20,8 +20,10 @@ component breakdown, energy, and per-platform extras.
 - **[Dataset & model](dataset.md)** — collect `features → measured watts` and
   train a predictor with `train.py`.
 
-## Platforms
+## Components & platforms
 
+- **[Component breakdown](components.md)** — the CPU and GPU as their own HA
+  entities (utilization, temperature, frequency/VRAM, and validated power).
 - **[Raspberry Pi / SBC](raspberry-pi.md)** — model profiles, Pi 5 PMIC power,
   INA219 HATs, and the throttling / overheating / overclocking sensors.
 - **x86** — RAPL exposes CPU package power as a component; INA219 or a battery
