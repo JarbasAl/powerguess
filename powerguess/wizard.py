@@ -17,6 +17,8 @@ import logging
 import multiprocessing
 import os
 import statistics
+import subprocess
+import sys
 import time
 from collections import deque
 from shutil import which
@@ -245,6 +247,56 @@ def generate_load(seconds: float, workers: Optional[int] = None):
     return procs
 
 
+_GPU_LOAD_SNIPPET = """
+import sys, time
+try:
+    import torch
+    if not torch.cuda.is_available():
+        sys.exit(2)
+except Exception:
+    sys.exit(2)
+end = time.time() + float(sys.argv[1])
+dev = torch.device("cuda")
+a = torch.randn(4096, 4096, device=dev)
+b = torch.randn(4096, 4096, device=dev)
+while time.time() < end:
+    c = a @ b
+    torch.cuda.synchronize()
+"""
+
+
+def generate_gpu_load(seconds: float):
+    """Drive the GPU with a CUDA matmul loop (via torch, in a subprocess).
+
+    Returns the Popen, or ``None`` if torch/CUDA isn't usable. A subprocess
+    avoids the CUDA-after-fork problems of multiprocessing.
+    """
+    try:
+        proc = subprocess.Popen([sys.executable, "-c", _GPU_LOAD_SNIPPET, str(seconds)],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        return None
+    time.sleep(1.5)  # let torch import + CUDA init; bail if it exited (no GPU)
+    if proc.poll() is not None:
+        return None
+    return proc
+
+
+def gpu_power_draw() -> Optional[float]:
+    """Current GPU power draw in watts via nvidia-smi, or None."""
+    if not which("nvidia-smi"):
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=power.draw", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=4)
+        if out.returncode == 0:
+            return float(out.stdout.strip().split("\n")[0])
+    except (ValueError, OSError):
+        pass
+    return None
+
+
 def _sample(meter, seconds: float, on_tick=None) -> List[float]:
     out: List[float] = []
     for remaining in range(int(seconds), 0, -1):
@@ -258,11 +310,12 @@ def _sample(meter, seconds: float, on_tick=None) -> List[float]:
 
 
 def autocalibrate_battery(idle_seconds: int = 20, load_seconds: int = 25,
-                          ramp: float = 2.0, on_tick=None):
+                          ramp: float = 2.0, gpu: bool = True, on_tick=None):
     """Calibrate automatically using the battery as the meter — no smart plug.
 
-    Measures idle, then spins every core itself and measures the peak. Returns
-    ``(calibration, warnings, summary)``. Requires the device to be on battery.
+    Measures idle, then loads every CPU core (and the GPU, if available) itself
+    and measures the peak. Returns ``(calibration, warnings, summary)``. Requires
+    the device to be on battery.
     """
     meter = BatteryMeter()
     if not meter.discharging():
@@ -270,15 +323,27 @@ def autocalibrate_battery(idle_seconds: int = 20, load_seconds: int = 25,
                       "meter, then run this again"], {}
 
     idle = _sample(meter, idle_seconds, on_tick)
-    procs = generate_load(load_seconds + ramp + 1)
-    time.sleep(ramp)  # let the load ramp up before sampling
+
+    duration = load_seconds + ramp + 1
+    gpu_proc = generate_gpu_load(duration) if gpu else None
+    cpu_procs = generate_load(duration)
+    time.sleep(ramp)  # let CPU + GPU load ramp up before sampling
     load = _sample(meter, load_seconds, on_tick)
-    for p in procs:
+    for p in cpu_procs:
         p.terminate()
         p.join()
+    if gpu_proc is not None:
+        gpu_proc.terminate()
 
+    warnings_extra = []
+    if gpu and gpu_proc is None:
+        warnings_extra.append("GPU load skipped (torch/CUDA not usable) — peak is "
+                              "CPU-only")
     cal, warnings = build_calibration(idle, load, voltage=meter.voltage())
-    return cal, warnings, {"idle": summarise(idle), "load": summarise(load)}
+    return cal, warnings + warnings_extra, {
+        "idle": summarise(idle), "load": summarise(load),
+        "gpu_loaded": gpu_proc is not None,
+    }
 
 
 # --- interactive flow ----------------------------------------------------------
@@ -382,7 +447,7 @@ def run() -> int:
 
 
 def run_battery(idle_seconds: int = 20, load_seconds: int = 25,
-                out: Optional[str] = None) -> int:
+                out: Optional[str] = None, gpu: bool = True) -> int:
     """Automatic, smart-plug-free calibration using the battery as the meter."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     from .config import Config
@@ -394,16 +459,19 @@ def run_battery(idle_seconds: int = 20, load_seconds: int = 25,
         print("Unplug the charger, then run:  powerguess-calibrate --battery\n")
         return 1
 
+    load_what = "every CPU core + the GPU" if gpu else "every CPU core"
     print(f"On battery ({meter.voltage():.1f} V). Measuring — leave it idle for "
-          f"{idle_seconds}s, then I'll load every core for {load_seconds}s.\n")
+          f"{idle_seconds}s, then I'll load {load_what} for {load_seconds}s.\n")
 
     def tick(remaining, value):
         print(f"  {remaining:2d}s … {value if value else '—'} W   ", end="\r", flush=True)
 
     print("STEP 1/2 — idle (the floor):")
-    cal, warnings, summary = autocalibrate_battery(idle_seconds, load_seconds, on_tick=tick)
+    cal, warnings, summary = autocalibrate_battery(idle_seconds, load_seconds,
+                                                   gpu=gpu, on_tick=tick)
     print(f"\n  idle ≈ {summary.get('idle', {}).get('median', 0)} W")
-    print(f"  peak ≈ {summary.get('load', {}).get('p90', 0)} W\n")
+    print(f"  peak ≈ {summary.get('load', {}).get('p90', 0)} W "
+          f"(CPU{'+GPU' if summary.get('gpu_loaded') else ''})\n")
 
     for w in warnings:
         print(f"  ! {w}")
@@ -425,10 +493,12 @@ def main() -> None:
                     help="auto-calibrate from the battery meter (laptops; no smart plug)")
     ap.add_argument("--idle-seconds", type=int, default=20)
     ap.add_argument("--load-seconds", type=int, default=25)
+    ap.add_argument("--no-gpu", action="store_true", help="don't load the GPU")
     ap.add_argument("--out", default=None, help="calibration output path")
     args = ap.parse_args()
     if args.battery:
-        raise SystemExit(run_battery(args.idle_seconds, args.load_seconds, args.out))
+        raise SystemExit(run_battery(args.idle_seconds, args.load_seconds,
+                                     args.out, gpu=not args.no_gpu))
     raise SystemExit(run())
 
 

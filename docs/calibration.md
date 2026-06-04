@@ -20,6 +20,21 @@ It asks for the plug's MQTT topic, the supply voltage, and (optionally) the PSU
 rating for a sanity check. If you can't run a load test, it falls back to bounding
 by the PSU rating.
 
+### Laptops: no smart plug needed
+
+On a laptop the battery's discharge rails are a whole-device meter. Unplug the
+charger and run:
+
+```bash
+powerguess-calibrate --battery
+```
+
+It's fully automatic: it measures idle, then loads every CPU core **and the GPU**
+(via torch/CUDA if present) itself, reads the peak off the battery, and writes the
+calibration — no smart plug, no manual stress command. Add `--no-gpu` to skip the
+GPU, or `--load-seconds 30` for a more sustained peak. Measuring total device draw
+this way is more reliable than per-component sensors (some report nonsense).
+
 ## Provenance first
 
 Every reading carries its `source` and, for estimates, an `error_margin`:

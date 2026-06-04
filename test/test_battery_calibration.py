@@ -48,6 +48,7 @@ def test_autocalibrate_from_battery(monkeypatch):
 
     monkeypatch.setattr(wiz, "BatteryMeter", lambda: FakeMeter())
     monkeypatch.setattr(wiz, "generate_load", lambda *a, **k: [])
+    monkeypatch.setattr(wiz, "generate_gpu_load", lambda *a, **k: None)
     monkeypatch.setattr(wiz.time, "sleep", lambda *a: None)
     monkeypatch.setattr(wiz, "_sample",
                         lambda meter, seconds, on_tick=None:
