@@ -1,12 +1,20 @@
 # Changelog
 
-## [0.1.0a2](https://github.com/JarbasAl/powerguess/tree/0.1.0a2) (2026-06-04)
+## [0.1.0a3](https://github.com/TigreGotico/powerguess/tree/0.1.0a3) (2026-07-30)
 
-[Full Changelog](https://github.com/JarbasAl/powerguess/compare/c3199e70b179aadfd5597b02ce9b553e590abaee...0.1.0a2)
+[Full Changelog](https://github.com/TigreGotico/powerguess/compare/0.1.0a2...0.1.0a3)
 
 **Merged pull requests:**
 
-- feat: MQTT / Home Assistant bridge + modern packaging [\#1](https://github.com/JarbasAl/powerguess/pull/1) ([JarbasAl](https://github.com/JarbasAl))
+- docs: rewrite README in Simplified Technical English [\#3](https://github.com/TigreGotico/powerguess/pull/3) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.1.0a2](https://github.com/TigreGotico/powerguess/tree/0.1.0a2) (2026-06-04)
+
+[Full Changelog](https://github.com/TigreGotico/powerguess/compare/c3199e70b179aadfd5597b02ce9b553e590abaee...0.1.0a2)
+
+**Merged pull requests:**
+
+- feat: MQTT / Home Assistant bridge + modern packaging [\#1](https://github.com/TigreGotico/powerguess/pull/1) ([JarbasAl](https://github.com/JarbasAl))
 
 
 
